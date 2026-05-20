@@ -88,9 +88,5 @@ Regles:
 - Vue impayes OK
 - Reset MDP super admin OK
 
-## Push conseille
-```bash
-git add .
-git commit -m "feat: finalize EduFlow docs, db scripts, auth reset, classes auto-sequence, student CRUD, unpaid logic and dashboard improvements"
-git push origin main
+
 ```
