@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import useAuth from "../hooks/useAuth";
 import { loginRequest } from "../services/authService";
@@ -25,7 +25,7 @@ export default function LoginPage() {
         navigate("/dashboard");
       }
     } catch {
-      setError("Invalid credentials or API is unavailable.");
+      setError("Identifiants invalides ou API indisponible.");
     } finally {
       setLoading(false);
     }
@@ -35,15 +35,15 @@ export default function LoginPage() {
     <section className="login-screen">
       <div className="login-hero">
         <p className="brand-kicker">{BRAND_NAME}</p>
-        <h1>{SCHOOL_NAME} Financial Management</h1>
+        <h1>Gestion financiere {SCHOOL_NAME}</h1>
         <p>
-          Secure access to billing, collection tracking, and operational
-          oversight in a single unified platform.
+          Connectez-vous pour suivre les encaissements, les impayes et la gestion
+          operationnelle de votre etablissement sur une seule interface.
         </p>
       </div>
 
       <div className="login-card">
-        <h2>Sign in</h2>
+        <h2>Connexion</h2>
         <form className="form-grid" onSubmit={handleSubmit}>
           <input
             type="email"
@@ -54,13 +54,13 @@ export default function LoginPage() {
           />
           <input
             type="password"
-            placeholder="Password"
+            placeholder="Mot de passe"
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
             required
           />
           <button type="submit" disabled={loading}>
-            {loading ? "Signing in..." : "Continue"}
+            {loading ? "Connexion..." : "Se connecter"}
           </button>
         </form>
         {error && <p className="error-text">{error}</p>}

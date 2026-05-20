@@ -1,0 +1,195 @@
+@startuml EduFlow
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+skinparam shadowing false
+skinparam linetype ortho
+skinparam nodesep 30
+skinparam ranksep 40
+skinparam usecase {
+  BackgroundColor White
+  BorderColor #666
+  FontSize 11
+}
+skinparam actor {
+  BackgroundColor White
+  BorderColor #333
+}
+
+left to right direction
+
+actor "Visiteur" as Visitor #LightGray
+actor "Utilisateur" as User #LightBlue
+actor "Admin" as Admin #LightGreen
+actor "Super Admin" as SuperAdmin #Plum
+
+rectangle "EduFlow" {
+
+  package "Authentification" {
+    usecase "Se connecter" as UC_Login
+  }
+
+  package "Espace École" {
+    package "Dashboard & Élèves" {
+      usecase "Dashboard école" as UC_DashSchool
+      usecase "Consulter élèves" as UC_ViewStudents
+      usecase "Créer élève" as UC_CreateStudent
+      usecase "Modifier élève" as UC_UpdateStudent
+      usecase "Gérer classes" as UC_Classes
+    }
+    package "Paiements" {
+      usecase "Mensualités" as UC_MonthlyFees
+      usecase "Impayés" as UC_Unpaid
+      usecase "Enregistrer paiement" as UC_CreatePayment
+      usecase "Consulter paiements" as UC_ViewPayments
+      usecase "Moyens de paiement" as UC_PaymentMethods
+      usecase "Résumé parents" as UC_ParentSummary
+    }
+    package "Utilisateurs École" {
+      usecase "Consulter utilisateurs" as UC_ViewUsersSchool
+      usecase "Créer utilisateur" as UC_CreateUserSchool
+      usecase "Modifier utilisateur" as UC_UpdateUserSchool
+    }
+  }
+
+  package "Espace Global (Super Admin)" {
+    package "Écoles" {
+      usecase "Dashboard global" as UC_DashGlobal
+      usecase "Consulter écoles" as UC_ViewSchools
+      usecase "Créer école" as UC_CreateSchool
+      usecase "Modifier école" as UC_UpdateSchool
+      usecase "Créer admin école" as UC_CreateSchoolAdmin
+      usecase "Uploader logo" as UC_UploadLogo
+    }
+    package "Utilisateurs Globaux" {
+      usecase "Consulter utilisateurs globaux" as UC_ViewUsersGlobal
+      usecase "Créer utilisateur global" as UC_CreateUserGlobal
+      usecase "Modifier utilisateur global" as UC_UpdateUserGlobal
+    }
+  }
+
+  package "Infrastructure" #LightYellow {
+    usecase "Authentifier JWT" as UC_JWT
+    usecase "Contrôler rôle" as UC_Role
+    usecase "Accéder MySQL" as UC_DB
+  }
+}
+
+' ── Visiteur
+Visitor --> UC_Login
+
+' ── Utilisateur
+User --> UC_DashSchool
+User --> UC_ViewStudents
+User --> UC_CreateStudent
+User --> UC_UpdateStudent
+User --> UC_Classes
+User --> UC_MonthlyFees
+User --> UC_Unpaid
+User --> UC_CreatePayment
+User --> UC_ViewPayments
+User --> UC_PaymentMethods
+User --> UC_ParentSummary
+
+' ── Admin (hérite User + gestion users école)
+Admin --> UC_DashSchool
+Admin --> UC_ViewStudents
+Admin --> UC_CreateStudent
+Admin --> UC_UpdateStudent
+Admin --> UC_Classes
+Admin --> UC_MonthlyFees
+Admin --> UC_Unpaid
+Admin --> UC_CreatePayment
+Admin --> UC_ViewPayments
+Admin --> UC_PaymentMethods
+Admin --> UC_ParentSummary
+Admin --> UC_ViewUsersSchool
+Admin --> UC_CreateUserSchool
+Admin --> UC_UpdateUserSchool
+
+' ── Super Admin (tout)
+SuperAdmin --> UC_DashGlobal
+SuperAdmin --> UC_ViewSchools
+SuperAdmin --> UC_CreateSchool
+SuperAdmin --> UC_UpdateSchool
+SuperAdmin --> UC_CreateSchoolAdmin
+SuperAdmin --> UC_UploadLogo
+SuperAdmin --> UC_ViewUsersGlobal
+SuperAdmin --> UC_CreateUserGlobal
+SuperAdmin --> UC_UpdateUserGlobal
+SuperAdmin --> UC_DashSchool
+SuperAdmin --> UC_ViewStudents
+SuperAdmin --> UC_CreateStudent
+SuperAdmin --> UC_UpdateStudent
+SuperAdmin --> UC_Classes
+SuperAdmin --> UC_MonthlyFees
+SuperAdmin --> UC_Unpaid
+SuperAdmin --> UC_CreatePayment
+SuperAdmin --> UC_ViewPayments
+SuperAdmin --> UC_PaymentMethods
+SuperAdmin --> UC_ParentSummary
+SuperAdmin --> UC_ViewUsersSchool
+SuperAdmin --> UC_CreateUserSchool
+SuperAdmin --> UC_UpdateUserSchool
+
+' ── Infrastructure includes (groupés)
+UC_Login .> UC_DB : <<include>>
+UC_DashSchool .> UC_JWT : <<include>>
+UC_DashSchool .> UC_DB : <<include>>
+UC_ViewStudents .> UC_JWT : <<include>>
+UC_ViewStudents .> UC_DB : <<include>>
+UC_CreateStudent .> UC_JWT : <<include>>
+UC_CreateStudent .> UC_DB : <<include>>
+UC_UpdateStudent .> UC_JWT : <<include>>
+UC_UpdateStudent .> UC_DB : <<include>>
+UC_Classes .> UC_JWT : <<include>>
+UC_Classes .> UC_DB : <<include>>
+UC_MonthlyFees .> UC_JWT : <<include>>
+UC_MonthlyFees .> UC_DB : <<include>>
+UC_Unpaid .> UC_JWT : <<include>>
+UC_Unpaid .> UC_DB : <<include>>
+UC_CreatePayment .> UC_JWT : <<include>>
+UC_CreatePayment .> UC_DB : <<include>>
+UC_ViewPayments .> UC_JWT : <<include>>
+UC_ViewPayments .> UC_DB : <<include>>
+UC_PaymentMethods .> UC_JWT : <<include>>
+UC_PaymentMethods .> UC_DB : <<include>>
+UC_ParentSummary .> UC_JWT : <<include>>
+UC_ParentSummary .> UC_DB : <<include>>
+UC_ViewUsersSchool .> UC_JWT : <<include>>
+UC_ViewUsersSchool .> UC_Role : <<include>>
+UC_ViewUsersSchool .> UC_DB : <<include>>
+UC_CreateUserSchool .> UC_JWT : <<include>>
+UC_CreateUserSchool .> UC_Role : <<include>>
+UC_CreateUserSchool .> UC_DB : <<include>>
+UC_UpdateUserSchool .> UC_JWT : <<include>>
+UC_UpdateUserSchool .> UC_Role : <<include>>
+UC_UpdateUserSchool .> UC_DB : <<include>>
+UC_DashGlobal .> UC_JWT : <<include>>
+UC_DashGlobal .> UC_Role : <<include>>
+UC_DashGlobal .> UC_DB : <<include>>
+UC_ViewSchools .> UC_JWT : <<include>>
+UC_ViewSchools .> UC_Role : <<include>>
+UC_ViewSchools .> UC_DB : <<include>>
+UC_CreateSchool .> UC_JWT : <<include>>
+UC_CreateSchool .> UC_Role : <<include>>
+UC_CreateSchool .> UC_DB : <<include>>
+UC_UpdateSchool .> UC_JWT : <<include>>
+UC_UpdateSchool .> UC_Role : <<include>>
+UC_UpdateSchool .> UC_DB : <<include>>
+UC_CreateSchoolAdmin .> UC_JWT : <<include>>
+UC_CreateSchoolAdmin .> UC_Role : <<include>>
+UC_CreateSchoolAdmin .> UC_DB : <<include>>
+UC_UploadLogo .> UC_JWT : <<include>>
+UC_UploadLogo .> UC_Role : <<include>>
+UC_UploadLogo .> UC_DB : <<include>>
+UC_ViewUsersGlobal .> UC_JWT : <<include>>
+UC_ViewUsersGlobal .> UC_Role : <<include>>
+UC_ViewUsersGlobal .> UC_DB : <<include>>
+UC_CreateUserGlobal .> UC_JWT : <<include>>
+UC_CreateUserGlobal .> UC_Role : <<include>>
+UC_CreateUserGlobal .> UC_DB : <<include>>
+UC_UpdateUserGlobal .> UC_JWT : <<include>>
+UC_UpdateUserGlobal .> UC_Role : <<include>>
+UC_UpdateUserGlobal .> UC_DB : <<include>>
+
+@enduml

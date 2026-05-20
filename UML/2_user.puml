@@ -1,0 +1,86 @@
+@startuml Utilisateur
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+skinparam shadowing false
+skinparam linetype ortho
+skinparam nodesep 40
+skinparam ranksep 50
+skinparam usecase {
+  BackgroundColor #E3F2FD
+  BorderColor #1565C0
+  FontSize 12
+}
+skinparam actor {
+  BackgroundColor #BBDEFB
+  BorderColor #1565C0
+  FontColor #0D47A1
+}
+skinparam package {
+  BackgroundColor #E8F5E9
+  BorderColor #2E7D32
+}
+skinparam note {
+  BackgroundColor #FFF9C4
+}
+
+left to right direction
+
+actor "Utilisateur" as User
+
+rectangle "EduFlow — Espace Utilisateur" {
+  package "Dashboard & Élèves" {
+    usecase "Dashboard école" as UC_DashSchool
+    usecase "Consulter élèves" as UC_ViewStudents
+    usecase "Créer élève" as UC_CreateStudent
+    usecase "Modifier élève" as UC_UpdateStudent
+    usecase "Gérer classes" as UC_Classes
+  }
+  package "Paiements" {
+    usecase "Mensualités" as UC_MonthlyFees
+    usecase "Impayés" as UC_Unpaid
+    usecase "Enregistrer paiement" as UC_CreatePayment
+    usecase "Consulter paiements" as UC_ViewPayments
+    usecase "Moyens de paiement" as UC_PaymentMethods
+    usecase "Résumé parents" as UC_ParentSummary
+  }
+  package "Infrastructure" #FFFDE7 {
+    usecase "Authentifier JWT" as UC_JWT
+    usecase "Accéder MySQL" as UC_DB
+  }
+}
+
+User --> UC_DashSchool
+User --> UC_ViewStudents
+User --> UC_CreateStudent
+User --> UC_UpdateStudent
+User --> UC_Classes
+User --> UC_MonthlyFees
+User --> UC_Unpaid
+User --> UC_CreatePayment
+User --> UC_ViewPayments
+User --> UC_PaymentMethods
+User --> UC_ParentSummary
+
+UC_DashSchool .> UC_JWT : <<include>>
+UC_DashSchool .> UC_DB : <<include>>
+UC_ViewStudents .> UC_JWT : <<include>>
+UC_ViewStudents .> UC_DB : <<include>>
+UC_CreateStudent .> UC_JWT : <<include>>
+UC_CreateStudent .> UC_DB : <<include>>
+UC_UpdateStudent .> UC_JWT : <<include>>
+UC_UpdateStudent .> UC_DB : <<include>>
+UC_Classes .> UC_JWT : <<include>>
+UC_Classes .> UC_DB : <<include>>
+UC_MonthlyFees .> UC_JWT : <<include>>
+UC_MonthlyFees .> UC_DB : <<include>>
+UC_Unpaid .> UC_JWT : <<include>>
+UC_Unpaid .> UC_DB : <<include>>
+UC_CreatePayment .> UC_JWT : <<include>>
+UC_CreatePayment .> UC_DB : <<include>>
+UC_ViewPayments .> UC_JWT : <<include>>
+UC_ViewPayments .> UC_DB : <<include>>
+UC_PaymentMethods .> UC_JWT : <<include>>
+UC_PaymentMethods .> UC_DB : <<include>>
+UC_ParentSummary .> UC_JWT : <<include>>
+UC_ParentSummary .> UC_DB : <<include>>
+@enduml

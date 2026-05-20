@@ -1,0 +1,38 @@
+@startuml Visiteur
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+skinparam shadowing false
+skinparam linetype ortho
+skinparam nodesep 40
+skinparam ranksep 50
+skinparam usecase {
+  BackgroundColor #FAFAFA
+  BorderColor #888
+  FontSize 12
+}
+skinparam actor {
+  BackgroundColor #E0E0E0
+  BorderColor #555
+  FontColor #222
+}
+skinparam package {
+  BackgroundColor #F5F5F5
+  BorderColor #AAAAAA
+}
+
+left to right direction
+
+actor "Visiteur" as Visitor
+
+rectangle "EduFlow" {
+  package "Authentification" {
+    usecase "Se connecter" as UC_Login
+  }
+  package "Infrastructure" #FFFDE7 {
+    usecase "Accéder MySQL" as UC_DB
+  }
+}
+
+Visitor --> UC_Login
+UC_Login .> UC_DB : <<include>>
+@enduml

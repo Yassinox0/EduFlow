@@ -1,6 +1,6 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useAuth from "../hooks/useAuth";
-import { createUser, getUsers } from "../services/userService";
+import { createUser, getUsers, resetUserPassword } from "../services/userService";
 import { getCurrentSchool, getSchools } from "../services/schoolService";
 
 const EMPTY_FORM = {
@@ -13,6 +13,12 @@ const EMPTY_FORM = {
   status: "ACTIVE",
 };
 
+const roleLabel = {
+  user: "Utilisateur",
+  admin: "Admin",
+  super_admin: "Super admin",
+};
+
 export default function AdminPage() {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
@@ -23,6 +29,7 @@ export default function AdminPage() {
   const [currentSchool, setCurrentSchool] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [message, setMessage] = useState("");
+  const [resetMessage, setResetMessage] = useState("");
   const [error, setError] = useState("");
 
   const selectedSchool = useMemo(
@@ -57,7 +64,7 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
-    load().catch(() => setError("Unable to load admin data."));
+    load().catch(() => setError("Impossible de charger les donnees d'administration."));
   }, [isAdmin, isSuperAdmin]);
 
   const handleSubmit = async (e) => {
@@ -84,11 +91,24 @@ export default function AdminPage() {
       }
 
       const created = await createUser(payload);
-      setMessage(`User created: ${created.email}`);
+      setMessage(`Utilisateur cree: ${created.email}`);
       setForm((prev) => ({ ...EMPTY_FORM, school_id: prev.school_id || form.school_id }));
       await load();
     } catch (err) {
-      setError(err?.response?.data?.message || "Failed to create user.");
+      setError(err?.response?.data?.message || "Echec de creation utilisateur.");
+    }
+  };
+
+  const handleResetPassword = async (targetUser) => {
+    setError("");
+    setMessage("");
+    setResetMessage("");
+
+    try {
+      const result = await resetUserPassword(targetUser.id);
+      setResetMessage(`Mot de passe reinitialise pour ${result.email}: ${result.default_password}`);
+    } catch (err) {
+      setError(err?.response?.data?.message || "Echec de reinitialisation du mot de passe.");
     }
   };
 
@@ -96,7 +116,7 @@ export default function AdminPage() {
     return (
       <section className="panel">
         <h2>Administration</h2>
-        <p className="muted">Access restricted to authorized administrators.</p>
+        <p className="muted">Acces reserve aux administrateurs autorises.</p>
       </section>
     );
   }
@@ -105,33 +125,31 @@ export default function AdminPage() {
     <div className="admin-grid">
       <section className="panel hero-panel">
         <p className="brand-kicker">Administration</p>
-        <h2>{isSuperAdmin ? "Global User Directory" : "School User Directory"}</h2>
+        <h2>{isSuperAdmin ? "Annuaire global des utilisateurs" : "Annuaire de votre ecole"}</h2>
         <p className="muted">
           {isSuperAdmin
-            ? "Create and manage users across schools with controlled role assignment."
-            : "Create and manage users for your school only."}
+            ? "Creation et gestion des comptes multi-ecoles avec controle des roles."
+            : "Gestion des comptes utilisateurs de votre ecole uniquement."}
         </p>
       </section>
 
       <section className="panel">
-        <h3>Create user</h3>
+        <h3>Creer un utilisateur</h3>
         <form className="form-grid" onSubmit={handleSubmit}>
-          <input placeholder="First name" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
-          <input placeholder="Last name" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} required />
+          <input placeholder="Prenom" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
+          <input placeholder="Nom" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} required />
 
           {isSuperAdmin && (
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-              <option value="user">user</option>
-              <option value="consultant">consultant</option>
-              <option value="admin">admin</option>
-              <option value="super_admin">super_admin</option>
+              <option value="user">Utilisateur</option>
+              <option value="admin">Admin</option>
+              <option value="super_admin">Super admin</option>
             </select>
           )}
 
           {!isSuperAdmin && (
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-              <option value="user">user</option>
-              <option value="consultant">consultant</option>
+              <option value="user">Utilisateur</option>
             </select>
           )}
 
@@ -146,37 +164,39 @@ export default function AdminPage() {
           )}
 
           <input
-            placeholder="Email local part (ex: salma.alaoui)"
+            placeholder="Prefixe email (ex: salma.alaoui)"
             value={form.email_local_part}
             onChange={(e) => setForm({ ...form, email_local_part: e.target.value })}
           />
           {form.role !== "super_admin" && (
-            <p className="muted">Email preview: {(form.email_local_part || "user") + "@" + emailDomain}</p>
+            <p className="muted">Apercu email: {(form.email_local_part || "user") + "@" + emailDomain}</p>
           )}
 
-          <input type="password" placeholder="Password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+          <input type="password" placeholder="Mot de passe" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
           <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-            <option value="ACTIVE">ACTIVE</option>
-            <option value="INACTIVE">INACTIVE</option>
+            <option value="ACTIVE">Actif</option>
+            <option value="INACTIVE">Inactif</option>
           </select>
-          <button type="submit">Create user</button>
+          <button type="submit">Creer l'utilisateur</button>
         </form>
         {message && <p className="muted">{message}</p>}
+        {resetMessage && <p className="muted">{resetMessage}</p>}
         {error && <p className="error-text">{error}</p>}
       </section>
 
       <section className="panel">
-        <h3>Users ({users.length})</h3>
+        <h3>Utilisateurs ({users.length})</h3>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>ID</th>
-                <th>Name</th>
+                <th>Nom complet</th>
                 <th>Email</th>
                 <th>Role</th>
-                <th>Status</th>
-                <th>School</th>
+                <th>Statut</th>
+                <th>Ecole</th>
+                {isSuperAdmin && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -185,14 +205,25 @@ export default function AdminPage() {
                   <td>{item.id}</td>
                   <td>{item.first_name} {item.last_name}</td>
                   <td>{item.email}</td>
-                  <td>{item.role}</td>
-                  <td>{item.status}</td>
+                  <td>{roleLabel[item.role] || item.role}</td>
+                  <td>{item.status === "ACTIVE" ? "Actif" : "Inactif"}</td>
                   <td>{item.school_name || "-"}</td>
+                  {isSuperAdmin && (
+                    <td>
+                      <button
+                        type="button"
+                        onClick={() => handleResetPassword(item)}
+                        disabled={item.role === "super_admin"}
+                      >
+                        Reset MDP
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
               {!users.length && (
                 <tr>
-                  <td colSpan="6" className="table-empty">No users found.</td>
+                  <td colSpan={isSuperAdmin ? 7 : 6} className="table-empty">Aucun utilisateur trouve.</td>
                 </tr>
               )}
             </tbody>

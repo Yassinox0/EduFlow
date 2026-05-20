@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 use App\Controllers\AuthController;
 use App\Controllers\DashboardController;
+use App\Controllers\ClassLevelController;
 use App\Controllers\MonthlyFeeController;
 use App\Controllers\PaymentController;
+use App\Controllers\PaymentMethodController;
 use App\Controllers\ReceiptController;
 use App\Controllers\SchoolController;
 use App\Controllers\StudentController;
@@ -20,12 +22,18 @@ Router::add('POST', '/api/login', [new AuthController(), 'login']);
 
 Router::add('GET', '/api/students', [new StudentController(), 'index'], [AuthMiddleware::class]);
 Router::add('POST', '/api/students', [new StudentController(), 'store'], [AuthMiddleware::class]);
+Router::add('PUT', '/api/students/{id}', [new StudentController(), 'update'], [AuthMiddleware::class]);
+Router::add('DELETE', '/api/students/{id}', [new StudentController(), 'delete'], [AuthMiddleware::class]);
 Router::add('GET', '/api/parents/summary', [new StudentController(), 'parentSummary'], [AuthMiddleware::class]);
+Router::add('GET', '/api/class-levels', [new ClassLevelController(), 'index'], [AuthMiddleware::class]);
+Router::add('POST', '/api/class-levels', [new ClassLevelController(), 'store'], [AuthMiddleware::class]);
 
 Router::add('GET', '/api/payments', [new PaymentController(), 'index'], [AuthMiddleware::class]);
 Router::add('POST', '/api/payments', [new PaymentController(), 'store'], [AuthMiddleware::class]);
+Router::add('GET', '/api/payment-methods', [new PaymentMethodController(), 'index'], [AuthMiddleware::class]);
 
 Router::add('GET', '/api/monthly-fees', [new MonthlyFeeController(), 'index'], [AuthMiddleware::class]);
+Router::add('GET', '/api/monthly-fees/unpaid', [new MonthlyFeeController(), 'unpaid'], [AuthMiddleware::class]);
 Router::add('GET', '/api/dashboard', [new DashboardController(), 'index'], [AuthMiddleware::class]);
 Router::add('GET', '/api/school/dashboard', [new DashboardController(), 'index'], [AuthMiddleware::class]);
 Router::add('GET', '/api/super-admin/dashboard', [new SuperAdminController(), 'dashboard'], [AuthMiddleware::class, new RoleMiddleware('super_admin')]);
@@ -41,6 +49,7 @@ Router::add('POST', '/api/schools/logo', [new SchoolController(), 'uploadLogo'],
 Router::add('GET', '/api/users', [new UserController(), 'index'], [AuthMiddleware::class, new RoleMiddleware(['super_admin', 'admin'])]);
 Router::add('POST', '/api/users', [new UserController(), 'store'], [AuthMiddleware::class, new RoleMiddleware(['super_admin', 'admin'])]);
 Router::add('PUT', '/api/users/{id}', [new UserController(), 'update'], [AuthMiddleware::class, new RoleMiddleware(['super_admin', 'admin'])]);
+Router::add('POST', '/api/users/{id}/reset-password', [new UserController(), 'resetPassword'], [AuthMiddleware::class, new RoleMiddleware('super_admin')]);
 
 Router::add('GET', '/api/receipts', function (): void {
     $paymentId = (int)($_GET['payment_id'] ?? 0);

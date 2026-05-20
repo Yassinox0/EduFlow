@@ -2,6 +2,14 @@
 
 declare(strict_types=1);
 
+if (PHP_SAPI === 'cli-server') {
+    $requestedPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+    $requestedFile = __DIR__ . $requestedPath;
+    if (is_file($requestedFile)) {
+        return false;
+    }
+}
+
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use Dotenv\Dotenv;

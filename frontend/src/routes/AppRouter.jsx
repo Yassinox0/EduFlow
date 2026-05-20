@@ -10,6 +10,7 @@ import PaymentsPage from "../pages/PaymentsPage";
 import AdminPage from "../pages/AdminPage";
 import StudentFormPage from "../pages/StudentFormPage";
 import StudentsPage from "../pages/StudentsPage";
+import ClassesPage from "../pages/ClassesPage";
 import UnpaidPage from "../pages/UnpaidPage";
 import SuperAdminDashboardPage from "../pages/SuperAdminDashboardPage";
 import SchoolsPage from "../pages/SchoolsPage";
@@ -31,6 +32,7 @@ export default function AppRouter() {
         >
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/students" element={<StudentsPage />} />
+          <Route path="/classes" element={<ClassesPage />} />
           <Route path="/students/new" element={<StudentFormPage />} />
           <Route path="/payments" element={<PaymentsPage />} />
           <Route path="/monthly-fees" element={<MonthlyFeesPage />} />

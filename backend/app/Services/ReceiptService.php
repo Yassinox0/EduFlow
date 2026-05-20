@@ -18,17 +18,19 @@ class ReceiptService
 
         if ($role === 'super_admin') {
             $stmt = $pdo->prepare('
-                SELECT p.*, s.first_name, s.last_name
+                SELECT p.*, s.first_name, s.last_name, pm.label AS payment_method_label
                 FROM payments p
                 INNER JOIN students s ON s.id = p.student_id
+                LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id
                 WHERE p.id = ?
             ');
             $stmt->execute([$paymentId]);
         } else {
             $stmt = $pdo->prepare('
-                SELECT p.*, s.first_name, s.last_name
+                SELECT p.*, s.first_name, s.last_name, pm.label AS payment_method_label
                 FROM payments p
                 INNER JOIN students s ON s.id = p.student_id
+                LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id
                 WHERE p.id = ? AND p.school_id = ?
             ');
             $stmt->execute([$paymentId, $schoolId]);
@@ -44,7 +46,7 @@ class ReceiptService
             'student' => trim(($payment['first_name'] ?? '') . ' ' . ($payment['last_name'] ?? '')),
             'amount_paid' => (float)$payment['amount_paid'],
             'payment_date' => $payment['payment_date'],
-            'payment_method' => $payment['payment_method'],
+            'payment_method' => $payment['payment_method_label'] ?: $payment['payment_method'],
         ];
     }
 }

@@ -39,4 +39,25 @@ class UserController
 
         Response::json($result);
     }
+
+    public function resetPassword(): void
+    {
+        $userId = (int)Request::param('id', 0);
+        $result = (new UserService())->resetPasswordToDefault($userId);
+
+        if (isset($result['error'])) {
+            $status = 422;
+            if ($result['error'] === 'User not found') {
+                $status = 404;
+            } elseif (
+                $result['error'] === 'Only super admin can reset passwords' ||
+                $result['error'] === 'Super admin cannot reset own password from this action'
+            ) {
+                $status = 403;
+            }
+            Response::json(['message' => $result['error']], $status);
+        }
+
+        Response::json($result);
+    }
 }

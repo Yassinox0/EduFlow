@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { createSchoolAdmin } from "../services/schoolService";
 
@@ -13,34 +13,43 @@ export default function SchoolAdminCreatePage() {
     status: "ACTIVE",
   });
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const created = await createSchoolAdmin(id, form);
-    setMessage(`Admin created: ${created.email}`);
-    setTimeout(() => navigate(`/super-admin/schools/${id}`), 1200);
+    setMessage("");
+    setError("");
+
+    try {
+      const created = await createSchoolAdmin(id, form);
+      setMessage(`Admin cree: ${created.email}`);
+      setTimeout(() => navigate(`/super-admin/schools/${id}`), 1200);
+    } catch (err) {
+      setError(err?.response?.data?.message || "Echec de creation de l'admin.");
+    }
   };
 
   return (
     <div className="admin-grid">
       <section className="panel hero-panel">
-        <p className="brand-kicker">School admin</p>
-        <h2>Create principal admin</h2>
+        <p className="brand-kicker">Admin ecole</p>
+        <h2>Creer l'administrateur principal</h2>
       </section>
 
       <section className="panel">
         <form className="form-grid" onSubmit={handleSubmit}>
-          <input placeholder="First name" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
-          <input placeholder="Last name" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} required />
-          <input placeholder="Email local part (optional)" value={form.email_local_part} onChange={(e) => setForm({ ...form, email_local_part: e.target.value })} />
-          <input type="password" placeholder="Password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+          <input placeholder="Prenom" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
+          <input placeholder="Nom" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} required />
+          <input placeholder="Prefixe email (optionnel)" value={form.email_local_part} onChange={(e) => setForm({ ...form, email_local_part: e.target.value })} />
+          <input type="password" placeholder="Mot de passe" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
           <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-            <option value="ACTIVE">ACTIVE</option>
-            <option value="INACTIVE">INACTIVE</option>
+            <option value="ACTIVE">Actif</option>
+            <option value="INACTIVE">Inactif</option>
           </select>
-          <button type="submit">Create school admin</button>
+          <button type="submit">Creer l'admin de l'ecole</button>
         </form>
         {message && <p className="muted">{message}</p>}
+        {error && <p className="error-text">{error}</p>}
       </section>
     </div>
   );

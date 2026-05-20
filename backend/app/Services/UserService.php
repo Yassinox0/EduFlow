@@ -10,6 +10,8 @@ use PDOException;
 
 class UserService
 {
+    private const DEFAULT_RESET_PASSWORD = 'EduFlow@123';
+
     public function getAll(): array
     {
         $authUser = Request::get('auth_user', []);
@@ -56,7 +58,7 @@ class UserService
 
         if ($actorRole === 'super_admin') {
             $targetRole = (string)($data['role'] ?? 'user');
-            if (!in_array($targetRole, ['super_admin', 'admin', 'user', 'consultant'], true)) {
+            if (!in_array($targetRole, ['super_admin', 'admin', 'user'], true)) {
                 return ['error' => 'Invalid role'];
             }
 
@@ -73,8 +75,8 @@ class UserService
             }
 
             $targetRole = (string)($data['role'] ?? 'user');
-            if (!in_array($targetRole, ['user', 'consultant'], true)) {
-                return ['error' => 'Admin can only create user or consultant'];
+            if (!in_array($targetRole, ['user'], true)) {
+                return ['error' => 'Admin can only create user'];
             }
             $targetSchoolId = $actorSchoolId;
         }
@@ -141,13 +143,13 @@ class UserService
         if (isset($data['role'])) {
             $requestedRole = (string)$data['role'];
             if ($actorRole === 'super_admin') {
-                if (!in_array($requestedRole, ['super_admin', 'admin', 'user', 'consultant'], true)) {
+                if (!in_array($requestedRole, ['super_admin', 'admin', 'user'], true)) {
                     return ['error' => 'Invalid role'];
                 }
                 $role = $requestedRole;
             } else {
-                if (!in_array($requestedRole, ['user', 'consultant'], true)) {
-                    return ['error' => 'Admin can set only user/consultant roles'];
+                if (!in_array($requestedRole, ['user'], true)) {
+                    return ['error' => 'Admin can set only user role'];
                 }
                 $role = $requestedRole;
             }
@@ -172,6 +174,37 @@ class UserService
             'role' => $updated['role'],
             'status' => $updated['status'],
             'message' => 'User updated successfully',
+        ];
+    }
+
+    public function resetPasswordToDefault(int $userId): array
+    {
+        $authUser = Request::get('auth_user', []);
+        $actorRole = (string)($authUser['role'] ?? '');
+        $actorId = isset($authUser['id']) ? (int)$authUser['id'] : 0;
+
+        if ($actorRole !== 'super_admin') {
+            return ['error' => 'Only super admin can reset passwords'];
+        }
+
+        $existing = $this->findUserById($userId);
+        if (!$existing) {
+            return ['error' => 'User not found'];
+        }
+
+        if ((int)$existing['id'] === $actorId) {
+            return ['error' => 'Super admin cannot reset own password from this action'];
+        }
+
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare('UPDATE users SET password = ? WHERE id = ?');
+        $stmt->execute([password_hash(self::DEFAULT_RESET_PASSWORD, PASSWORD_DEFAULT), $userId]);
+
+        return [
+            'id' => (int)$existing['id'],
+            'email' => $existing['email'],
+            'default_password' => self::DEFAULT_RESET_PASSWORD,
+            'message' => 'Password reset successfully',
         ];
     }
 

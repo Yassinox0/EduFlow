@@ -40,9 +40,18 @@ class MonthlyFeeService
 
         $whereSql = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
         $sql = "
-            SELECT mf.*, s.first_name, s.last_name, s.parent_name, s.phone
+            SELECT
+                mf.*,
+                s.first_name,
+                s.last_name,
+                s.parent_name,
+                s.phone,
+                s.school_year,
+                s.discount_percent,
+                COALESCE(cl.name, s.class_level) AS class_level_name
             FROM monthly_fees mf
             INNER JOIN students s ON s.id = mf.student_id
+            LEFT JOIN class_levels cl ON cl.id = s.class_level_id
             {$whereSql}
             ORDER BY mf.id DESC
         ";
@@ -61,19 +70,27 @@ class MonthlyFeeService
 
         $pdo = Database::connect();
 
-        $studentsStmt = $pdo->prepare('SELECT id, monthly_amount FROM students WHERE school_id = ?');
+        $studentsStmt = $pdo->prepare('
+            SELECT id, monthly_amount, discount_percent, status
+            FROM students
+            WHERE school_id = ?
+        ');
         $studentsStmt->execute([$schoolId]);
         $students = $studentsStmt->fetchAll();
 
         $created = 0;
         foreach ($students as $student) {
+            if (($student['status'] ?? 'ACTIVE') !== 'ACTIVE') {
+                continue;
+            }
+
             $existsStmt = $pdo->prepare('SELECT id FROM monthly_fees WHERE school_id = ? AND student_id = ? AND month_label = ? AND year_value = ? LIMIT 1');
             $existsStmt->execute([$schoolId, $student['id'], $monthLabel, $yearValue]);
             if ($existsStmt->fetch()) {
                 continue;
             }
 
-            $amount = (float)$student['monthly_amount'];
+            $amount = $this->netAmountFromStudent((float)$student['monthly_amount'], (float)($student['discount_percent'] ?? 0));
             $insert = $pdo->prepare('
                 INSERT INTO monthly_fees (school_id, student_id, month_label, year_value, total_amount, amount_paid, remaining_amount, status)
                 VALUES (?, ?, ?, ?, ?, 0, ?, "UNPAID")
@@ -113,10 +130,43 @@ class MonthlyFeeService
                 s.phone,
                 CASE
                     WHEN mf.month_label REGEXP "^[0-9]{1,2}$" THEN
+                        STR_TO_DATE(
+                            CONCAT(
+                                mf.year_value, "-",
+                                LPAD(mf.month_label, 2, "0"), "-",
+                                LPAD(
+                                    LEAST(
+                                        DAY(s.created_at),
+                                        DAY(LAST_DAY(STR_TO_DATE(CONCAT(mf.year_value, "-", LPAD(mf.month_label, 2, "0"), "-01"), "%Y-%m-%d")))
+                                    ),
+                                    2,
+                                    "0"
+                                )
+                            ),
+                            "%Y-%m-%d"
+                        )
+                    ELSE NULL
+                END AS due_date,
+                CASE
+                    WHEN mf.month_label REGEXP "^[0-9]{1,2}$" THEN
                         GREATEST(
                             DATEDIFF(
                                 CURDATE(),
-                                STR_TO_DATE(CONCAT(mf.year_value, "-", LPAD(mf.month_label, 2, "0"), "-10"), "%Y-%m-%d")
+                                STR_TO_DATE(
+                                    CONCAT(
+                                        mf.year_value, "-",
+                                        LPAD(mf.month_label, 2, "0"), "-",
+                                        LPAD(
+                                            LEAST(
+                                                DAY(s.created_at),
+                                                DAY(LAST_DAY(STR_TO_DATE(CONCAT(mf.year_value, "-", LPAD(mf.month_label, 2, "0"), "-01"), "%Y-%m-%d")))
+                                            ),
+                                            2,
+                                            "0"
+                                        )
+                                    ),
+                                    "%Y-%m-%d"
+                                )
                             ),
                             0
                         )
@@ -127,14 +177,36 @@ class MonthlyFeeService
             WHERE mf.status != "PAID"
         ';
 
+        $sql .= ' AND (
+            CASE
+                WHEN mf.month_label REGEXP "^[0-9]{1,2}$" THEN
+                    STR_TO_DATE(
+                        CONCAT(
+                            mf.year_value, "-",
+                            LPAD(mf.month_label, 2, "0"), "-",
+                            LPAD(
+                                LEAST(
+                                    DAY(s.created_at),
+                                    DAY(LAST_DAY(STR_TO_DATE(CONCAT(mf.year_value, "-", LPAD(mf.month_label, 2, "0"), "-01"), "%Y-%m-%d")))
+                                ),
+                                2,
+                                "0"
+                            )
+                        ),
+                        "%Y-%m-%d"
+                    )
+                ELSE NULL
+            END
+        ) <= CURDATE()';
+
         if ($role !== 'super_admin') {
             $sql .= ' AND mf.school_id = ?';
-            $stmt = $pdo->prepare($sql . ' ORDER BY mf.year_value DESC, mf.month_label DESC, mf.id DESC');
+            $stmt = $pdo->prepare($sql . ' ORDER BY due_date ASC, mf.year_value ASC, mf.month_label ASC, mf.id ASC');
             $stmt->execute([$schoolId]);
             return $stmt->fetchAll();
         }
 
-        $stmt = $pdo->query($sql . ' ORDER BY mf.year_value DESC, mf.month_label DESC, mf.id DESC');
+        $stmt = $pdo->query($sql . ' ORDER BY due_date ASC, mf.year_value ASC, mf.month_label ASC, mf.id ASC');
         return $stmt->fetchAll();
     }
 
@@ -173,14 +245,23 @@ class MonthlyFeeService
             return ['fee' => $fee];
         }
 
-        $studentStmt = $pdo->prepare('SELECT monthly_amount FROM students WHERE id = ? AND school_id = ? LIMIT 1');
+        $studentStmt = $pdo->prepare('
+            SELECT monthly_amount, discount_percent, status
+            FROM students
+            WHERE id = ? AND school_id = ?
+            LIMIT 1
+        ');
         $studentStmt->execute([$studentId, $schoolId]);
         $student = $studentStmt->fetch();
         if (!$student) {
             return ['error' => 'Student not found for this school'];
         }
 
-        $amount = (float)$student['monthly_amount'];
+        if (($student['status'] ?? 'ACTIVE') !== 'ACTIVE') {
+            return ['error' => 'Inactive student cannot receive monthly fee'];
+        }
+
+        $amount = $this->netAmountFromStudent((float)$student['monthly_amount'], (float)($student['discount_percent'] ?? 0));
         $insert = $pdo->prepare('
             INSERT INTO monthly_fees (school_id, student_id, month_label, year_value, total_amount, amount_paid, remaining_amount, status)
             VALUES (?, ?, ?, ?, ?, 0, ?, "UNPAID")
@@ -204,5 +285,12 @@ class MonthlyFeeService
         $role = (string)($authUser['role'] ?? '');
         $schoolId = isset($authUser['school_id']) ? (int)$authUser['school_id'] : null;
         return [$role, $schoolId];
+    }
+
+    private function netAmountFromStudent(float $monthlyAmount, float $discountPercent): float
+    {
+        $discountPercent = max(0.0, min(100.0, $discountPercent));
+        $net = $monthlyAmount * ((100.0 - $discountPercent) / 100.0);
+        return round(max(0.0, $net), 2);
     }
 }

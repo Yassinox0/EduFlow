@@ -4,27 +4,24 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Core\Database;
-use App\Core\Request;
 use App\Core\Response;
+use App\Services\MonthlyFeeService;
 
 class MonthlyFeeController
 {
     public function index(): void
     {
-        $pdo = Database::connect();
-        $authUser = Request::get('auth_user', []);
-        $role = (string)($authUser['role'] ?? '');
-        $schoolId = isset($authUser['school_id']) ? (int)$authUser['school_id'] : null;
+        $filters = [
+            'month_label' => isset($_GET['month_label']) ? (string)$_GET['month_label'] : null,
+            'year_value' => isset($_GET['year_value']) ? (int)$_GET['year_value'] : null,
+            'status' => isset($_GET['status']) ? (string)$_GET['status'] : null,
+        ];
 
-        if ($role === 'super_admin') {
-            $fees = $pdo->query('SELECT * FROM monthly_fees ORDER BY id DESC')->fetchAll();
-            Response::json($fees);
-        }
+        Response::json((new MonthlyFeeService())->getAll($filters));
+    }
 
-        $stmt = $pdo->prepare('SELECT * FROM monthly_fees WHERE school_id = ? ORDER BY id DESC');
-        $stmt->execute([$schoolId]);
-        $fees = $stmt->fetchAll();
-        Response::json($fees);
+    public function unpaid(): void
+    {
+        Response::json((new MonthlyFeeService())->getUnpaid());
     }
 }

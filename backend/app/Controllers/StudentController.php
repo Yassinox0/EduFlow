@@ -25,9 +25,39 @@ class StudentController
         Response::json($result, 201);
     }
 
+    public function update(): void
+    {
+        $id = (int)Request::param('id', 0);
+        $result = (new StudentService())->update($id, Request::json());
+        if (isset($result['error'])) {
+            $status = $result['error'] === 'Student not found' ? 404 : 422;
+            if ($result['error'] === 'Forbidden') {
+                $status = 403;
+            }
+            Response::json(['message' => $result['error']], $status);
+        }
+
+        Response::json($result);
+    }
+
     public function parentSummary(): void
     {
         $search = isset($_GET['search']) ? (string)$_GET['search'] : null;
         Response::json((new StudentService())->parentSummary($search));
+    }
+
+    public function delete(): void
+    {
+        $id = (int)Request::param('id', 0);
+        $result = (new StudentService())->delete($id);
+        if (isset($result['error'])) {
+            $status = $result['error'] === 'Student not found' ? 404 : 422;
+            if ($result['error'] === 'Forbidden') {
+                $status = 403;
+            }
+            Response::json(['message' => $result['error']], $status);
+        }
+
+        Response::json($result);
     }
 }

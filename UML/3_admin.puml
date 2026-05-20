@@ -1,0 +1,101 @@
+@startuml Admin
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+skinparam shadowing false
+skinparam linetype ortho
+skinparam nodesep 40
+skinparam ranksep 50
+skinparam usecase {
+  BackgroundColor #E8F5E9
+  BorderColor #2E7D32
+  FontSize 12
+}
+skinparam actor {
+  BackgroundColor #C8E6C9
+  BorderColor #2E7D32
+  FontColor #1B5E20
+}
+skinparam package {
+  BackgroundColor #F1F8E9
+  BorderColor #558B2F
+}
+
+left to right direction
+
+actor "Admin" as Admin
+
+rectangle "EduFlow — Espace Admin" {
+  package "Dashboard & Élèves" {
+    usecase "Dashboard école" as UC_DashSchool
+    usecase "Consulter élèves" as UC_ViewStudents
+    usecase "Créer élève" as UC_CreateStudent
+    usecase "Modifier élève" as UC_UpdateStudent
+    usecase "Gérer classes" as UC_Classes
+  }
+  package "Paiements" {
+    usecase "Mensualités" as UC_MonthlyFees
+    usecase "Impayés" as UC_Unpaid
+    usecase "Enregistrer paiement" as UC_CreatePayment
+    usecase "Consulter paiements" as UC_ViewPayments
+    usecase "Moyens de paiement" as UC_PaymentMethods
+    usecase "Résumé parents" as UC_ParentSummary
+  }
+  package "Gestion Utilisateurs École" {
+    usecase "Consulter utilisateurs" as UC_ViewUsers
+    usecase "Créer utilisateur" as UC_CreateUser
+    usecase "Modifier utilisateur" as UC_UpdateUser
+  }
+  package "Infrastructure" #FFFDE7 {
+    usecase "Authentifier JWT" as UC_JWT
+    usecase "Contrôler rôle" as UC_Role
+    usecase "Accéder MySQL" as UC_DB
+  }
+}
+
+Admin --> UC_DashSchool
+Admin --> UC_ViewStudents
+Admin --> UC_CreateStudent
+Admin --> UC_UpdateStudent
+Admin --> UC_Classes
+Admin --> UC_MonthlyFees
+Admin --> UC_Unpaid
+Admin --> UC_CreatePayment
+Admin --> UC_ViewPayments
+Admin --> UC_PaymentMethods
+Admin --> UC_ParentSummary
+Admin --> UC_ViewUsers
+Admin --> UC_CreateUser
+Admin --> UC_UpdateUser
+
+UC_DashSchool .> UC_JWT : <<include>>
+UC_DashSchool .> UC_DB : <<include>>
+UC_ViewStudents .> UC_JWT : <<include>>
+UC_ViewStudents .> UC_DB : <<include>>
+UC_CreateStudent .> UC_JWT : <<include>>
+UC_CreateStudent .> UC_DB : <<include>>
+UC_UpdateStudent .> UC_JWT : <<include>>
+UC_UpdateStudent .> UC_DB : <<include>>
+UC_Classes .> UC_JWT : <<include>>
+UC_Classes .> UC_DB : <<include>>
+UC_MonthlyFees .> UC_JWT : <<include>>
+UC_MonthlyFees .> UC_DB : <<include>>
+UC_Unpaid .> UC_JWT : <<include>>
+UC_Unpaid .> UC_DB : <<include>>
+UC_CreatePayment .> UC_JWT : <<include>>
+UC_CreatePayment .> UC_DB : <<include>>
+UC_ViewPayments .> UC_JWT : <<include>>
+UC_ViewPayments .> UC_DB : <<include>>
+UC_PaymentMethods .> UC_JWT : <<include>>
+UC_PaymentMethods .> UC_DB : <<include>>
+UC_ParentSummary .> UC_JWT : <<include>>
+UC_ParentSummary .> UC_DB : <<include>>
+UC_ViewUsers .> UC_JWT : <<include>>
+UC_ViewUsers .> UC_Role : <<include>>
+UC_ViewUsers .> UC_DB : <<include>>
+UC_CreateUser .> UC_JWT : <<include>>
+UC_CreateUser .> UC_Role : <<include>>
+UC_CreateUser .> UC_DB : <<include>>
+UC_UpdateUser .> UC_JWT : <<include>>
+UC_UpdateUser .> UC_Role : <<include>>
+UC_UpdateUser .> UC_DB : <<include>>
+@enduml
