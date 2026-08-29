@@ -38,6 +38,30 @@ class MonthlyFeeService
             $params[] = (string)$filters['status'];
         }
 
+        $search = trim((string)($filters['search'] ?? ''));
+        if ($search !== '') {
+            $conditions[] = '(
+                LOWER(s.first_name) LIKE ?
+                OR LOWER(s.last_name) LIKE ?
+                OR LOWER(CONCAT(s.first_name, " ", s.last_name)) LIKE ?
+                OR LOWER(CONCAT(s.last_name, " ", s.first_name)) LIKE ?
+            )';
+            $term = '%' . strtolower($search) . '%';
+            array_push($params, $term, $term, $term, $term);
+        }
+
+        $classLevel = trim((string)($filters['class_level'] ?? ''));
+        if ($classLevel !== '') {
+            $conditions[] = 'LOWER(COALESCE(cl.level_name, cl.name, s.class_level)) LIKE ?';
+            $params[] = '%' . strtolower($classLevel) . '%';
+        }
+
+        $className = trim((string)($filters['class_name'] ?? ''));
+        if ($className !== '') {
+            $conditions[] = 'LOWER(COALESCE(cl.group_name, s.class_name, "")) LIKE ?';
+            $params[] = '%' . strtolower($className) . '%';
+        }
+
         $whereSql = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
         $sql = "
             SELECT
@@ -48,12 +72,13 @@ class MonthlyFeeService
                 s.phone,
                 s.school_year,
                 s.discount_percent,
-                COALESCE(cl.name, s.class_level) AS class_level_name
+                COALESCE(cl.level_name, cl.name, s.class_level) AS class_level_name,
+                COALESCE(cl.group_name, s.class_name) AS class_group_name
             FROM monthly_fees mf
             INNER JOIN students s ON s.id = mf.student_id
             LEFT JOIN class_levels cl ON cl.id = s.class_level_id
             {$whereSql}
-            ORDER BY mf.id DESC
+            ORDER BY mf.year_value ASC, FIELD(LPAD(mf.month_label, 2, "0"), "09", "10", "11", "12", "01", "02", "03", "04", "05", "06"), s.last_name ASC, s.first_name ASC
         ";
 
         $stmt = $pdo->prepare($sql);
@@ -108,7 +133,7 @@ class MonthlyFeeService
         ];
     }
 
-    public function getUnpaid(): array
+    public function getUnpaid(array $filters = []): array
     {
         [$role, $schoolId] = $this->authScope();
         $pdo = Database::connect();
@@ -128,6 +153,8 @@ class MonthlyFeeService
                 s.last_name,
                 s.parent_name,
                 s.phone,
+                COALESCE(cl.level_name, cl.name, s.class_level) AS class_level_name,
+                COALESCE(cl.group_name, s.class_name) AS class_group_name,
                 CASE
                     WHEN mf.month_label REGEXP "^[0-9]{1,2}$" THEN
                         STR_TO_DATE(
@@ -174,17 +201,74 @@ class MonthlyFeeService
                 END AS days_late
             FROM monthly_fees mf
             INNER JOIN students s ON s.id = mf.student_id
+            LEFT JOIN class_levels cl ON cl.id = s.class_level_id
             WHERE mf.status != "PAID"
-              AND mf.remaining_amount > 0
         ';
+
+        $sql .= ' AND (
+            CASE
+                WHEN mf.month_label REGEXP "^[0-9]{1,2}$" THEN
+                    STR_TO_DATE(
+                        CONCAT(
+                            mf.year_value, "-",
+                            LPAD(mf.month_label, 2, "0"), "-",
+                            LPAD(
+                                LEAST(
+                                    DAY(s.created_at),
+                                    DAY(LAST_DAY(STR_TO_DATE(CONCAT(mf.year_value, "-", LPAD(mf.month_label, 2, "0"), "-01"), "%Y-%m-%d")))
+                                ),
+                                2,
+                                "0"
+                            )
+                        ),
+                        "%Y-%m-%d"
+                    )
+                ELSE NULL
+            END
+        ) <= CURDATE()';
+
+        $params = [];
         if ($role !== 'super_admin') {
             $sql .= ' AND mf.school_id = ?';
-            $stmt = $pdo->prepare($sql . ' ORDER BY due_date ASC, mf.year_value ASC, mf.month_label ASC, mf.id ASC');
-            $stmt->execute([$schoolId]);
-            return $stmt->fetchAll();
+            $params[] = $schoolId;
         }
 
-        $stmt = $pdo->query($sql . ' ORDER BY due_date ASC, mf.year_value ASC, mf.month_label ASC, mf.id ASC');
+        if (!empty($filters['month_label'])) {
+            $sql .= ' AND mf.month_label = ?';
+            $params[] = (string)$filters['month_label'];
+        }
+
+        if (!empty($filters['year_value'])) {
+            $sql .= ' AND mf.year_value = ?';
+            $params[] = (int)$filters['year_value'];
+        }
+
+        $search = trim((string)($filters['search'] ?? ''));
+        if ($search !== '') {
+            $sql .= ' AND (
+                LOWER(s.first_name) LIKE ?
+                OR LOWER(s.last_name) LIKE ?
+                OR LOWER(CONCAT(s.first_name, " ", s.last_name)) LIKE ?
+                OR LOWER(CONCAT(s.last_name, " ", s.first_name)) LIKE ?
+            )';
+            $term = '%' . strtolower($search) . '%';
+            array_push($params, $term, $term, $term, $term);
+        }
+
+        $classLevel = trim((string)($filters['class_level'] ?? ''));
+        if ($classLevel !== '') {
+            $sql .= ' AND LOWER(COALESCE(cl.level_name, cl.name, s.class_level)) LIKE ?';
+            $params[] = '%' . strtolower($classLevel) . '%';
+        }
+
+        $className = trim((string)($filters['class_name'] ?? ''));
+        if ($className !== '') {
+            $sql .= ' AND LOWER(COALESCE(cl.group_name, s.class_name, "")) LIKE ?';
+            $params[] = '%' . strtolower($className) . '%';
+        }
+
+        $stmt = $pdo->prepare($sql . ' ORDER BY due_date ASC, mf.year_value ASC, FIELD(LPAD(mf.month_label, 2, "0"), "09", "10", "11", "12", "01", "02", "03", "04", "05", "06"), s.last_name ASC');
+        $stmt->execute($params);
         return $stmt->fetchAll();
     }
 
@@ -286,7 +370,8 @@ class MonthlyFeeService
                 s.phone,
                 s.school_year,
                 s.discount_percent,
-                COALESCE(cl.name, s.class_level) AS class_level_name
+                COALESCE(cl.level_name, cl.name, s.class_level) AS class_level_name,
+                COALESCE(cl.group_name, s.class_name) AS class_group_name
             FROM monthly_fees mf
             INNER JOIN students s ON s.id = mf.student_id
             LEFT JOIN class_levels cl ON cl.id = s.class_level_id

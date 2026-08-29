@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import useAuth from "../hooks/useAuth";
-import { createUser, getUsers, resetUserPassword, updateUser } from "../services/userService";
+import { createUser, deleteUser, getUsers, resetUserPassword, updateUser } from "../services/userService";
 import { getCurrentSchool, getSchools } from "../services/schoolService";
 
 const EMPTY_FORM = {
@@ -11,14 +11,6 @@ const EMPTY_FORM = {
   role: "user",
   school_id: "",
   status: "ACTIVE",
-};
-
-const EMPTY_EDIT_FORM = {
-  first_name: "",
-  last_name: "",
-  role: "user",
-  status: "ACTIVE",
-  password: "",
 };
 
 const roleLabel = {
@@ -36,11 +28,12 @@ export default function AdminPage() {
   const [schools, setSchools] = useState([]);
   const [currentSchool, setCurrentSchool] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [editingUserId, setEditingUserId] = useState(null);
-  const [editForm, setEditForm] = useState(EMPTY_EDIT_FORM);
+  const [editingId, setEditingId] = useState(null);
   const [message, setMessage] = useState("");
   const [resetMessage, setResetMessage] = useState("");
   const [error, setError] = useState("");
+
+  const isEditing = editingId !== null;
 
   const selectedSchool = useMemo(
     () => schools.find((item) => String(item.id) === String(form.school_id)) || null,
@@ -53,18 +46,6 @@ export default function AdminPage() {
     }
     return currentSchool?.email_domain || "school-domain.com";
   }, [currentSchool?.email_domain, isSuperAdmin, selectedSchool?.email_domain]);
-
-  const canEditUser = (target) => {
-    if (isSuperAdmin) {
-      return true;
-    }
-
-    if (!isAdmin || target.role !== "user") {
-      return false;
-    }
-
-    return String(target.school_id) === String(user?.school_id);
-  };
 
   const load = async () => {
     const [usersData, currentData] = await Promise.all([
@@ -89,24 +70,24 @@ export default function AdminPage() {
     load().catch(() => setError("Impossible de charger les donnees d'administration."));
   }, [isAdmin, isSuperAdmin]);
 
-  const clearFeedback = () => {
-    setMessage("");
-    setResetMessage("");
-    setError("");
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    clearFeedback();
+    setError("");
+    setMessage("");
 
     try {
       const payload = {
         first_name: form.first_name,
         last_name: form.last_name,
-        email_local_part: form.email_local_part,
-        password: form.password,
         status: form.status,
       };
+
+      if (!isEditing) {
+        payload.email_local_part = form.email_local_part;
+        payload.password = form.password;
+      } else if (form.password) {
+        payload.password = form.password;
+      }
 
       if (isSuperAdmin) {
         payload.role = form.role;
@@ -114,65 +95,71 @@ export default function AdminPage() {
           payload.school_id = Number(form.school_id);
         }
       } else {
-        payload.role = "user";
+        payload.role = form.role;
       }
 
-      const created = await createUser(payload);
-      setMessage(`Utilisateur cree: ${created.email}`);
+      if (isEditing) {
+        await updateUser(editingId, payload);
+        setMessage("Utilisateur modifie avec succes.");
+      } else {
+        const created = await createUser(payload);
+        setMessage(`Utilisateur cree: ${created.email}`);
+      }
+
+      setEditingId(null);
       setForm((prev) => ({ ...EMPTY_FORM, school_id: prev.school_id || form.school_id }));
       await load();
     } catch (err) {
-      setError(err?.response?.data?.message || "Echec de creation utilisateur.");
+      setError(err?.response?.data?.message || "Echec de sauvegarde utilisateur.");
     }
   };
 
-  const startEdit = (targetUser) => {
-    clearFeedback();
-    setEditingUserId(targetUser.id);
-    setEditForm({
-      first_name: targetUser.first_name,
-      last_name: targetUser.last_name,
-      role: targetUser.role,
-      status: targetUser.status,
+  const handleEdit = (targetUser) => {
+    setEditingId(targetUser.id);
+    setForm({
+      first_name: targetUser.first_name || "",
+      last_name: targetUser.last_name || "",
+      email_local_part: "",
       password: "",
+      role: targetUser.role || "user",
+      school_id: targetUser.school_id ? String(targetUser.school_id) : "",
+      status: targetUser.status || "ACTIVE",
     });
+    setMessage("");
+    setResetMessage("");
+    setError("");
   };
 
   const cancelEdit = () => {
-    setEditingUserId(null);
-    setEditForm(EMPTY_EDIT_FORM);
+    setEditingId(null);
+    setForm((prev) => ({ ...EMPTY_FORM, school_id: prev.school_id || form.school_id }));
   };
 
-  const handleUpdate = async (e) => {
-    e.preventDefault();
-    clearFeedback();
+  const handleDelete = async (targetUser) => {
+    if (!window.confirm(`Supprimer le compte ${targetUser.email} ?`)) {
+      return;
+    }
+
+    setError("");
+    setMessage("");
+    setResetMessage("");
 
     try {
-      const payload = {
-        first_name: editForm.first_name,
-        last_name: editForm.last_name,
-        status: editForm.status,
-      };
-
-      if (isSuperAdmin) {
-        payload.role = editForm.role;
+      await deleteUser(targetUser.id);
+      setMessage("Utilisateur supprime avec succes.");
+      if (editingId === targetUser.id) {
+        cancelEdit();
       }
-
-      if (editForm.password.trim()) {
-        payload.password = editForm.password;
-      }
-
-      const updated = await updateUser(editingUserId, payload);
-      setMessage(`Utilisateur mis a jour: ${updated.email}`);
-      cancelEdit();
       await load();
     } catch (err) {
-      setError(err?.response?.data?.message || "Echec de mise a jour utilisateur.");
+      setError(err?.response?.data?.message || "Echec de suppression utilisateur.");
     }
   };
 
   const handleResetPassword = async (targetUser) => {
-    clearFeedback();
+    setError("");
+    setMessage("");
+    setResetMessage("");
 
     try {
       const result = await resetUserPassword(targetUser.id);
@@ -181,8 +168,6 @@ export default function AdminPage() {
       setError(err?.response?.data?.message || "Echec de reinitialisation du mot de passe.");
     }
   };
-
-  const showActionsColumn = isSuperAdmin || isAdmin;
 
   if (!isSuperAdmin && !isAdmin) {
     return (
@@ -206,7 +191,7 @@ export default function AdminPage() {
       </section>
 
       <section className="panel">
-        <h3>Creer un utilisateur</h3>
+        <h3>{isEditing ? "Modifier un utilisateur" : "Creer un utilisateur"}</h3>
         <form className="form-grid" onSubmit={handleSubmit}>
           <input placeholder="Prenom" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
           <input placeholder="Nom" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} required />
@@ -216,6 +201,12 @@ export default function AdminPage() {
               <option value="user">Utilisateur</option>
               <option value="admin">Admin</option>
               <option value="super_admin">Super admin</option>
+            </select>
+          )}
+
+          {!isSuperAdmin && (
+            <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+              <option value="user">Utilisateur</option>
             </select>
           )}
 
@@ -229,75 +220,41 @@ export default function AdminPage() {
             </select>
           )}
 
-          <input
-            placeholder="Prefixe email (ex: salma.alaoui)"
-            value={form.email_local_part}
-            onChange={(e) => setForm({ ...form, email_local_part: e.target.value })}
-          />
-          {(isAdmin || form.role !== "super_admin") && (
+          {!isEditing && (
+            <input
+              placeholder="Prefixe email (ex: salma.alaoui)"
+              value={form.email_local_part}
+              onChange={(e) => setForm({ ...form, email_local_part: e.target.value })}
+            />
+          )}
+          {!isEditing && form.role !== "super_admin" && (
             <p className="muted">Apercu email: {(form.email_local_part || "user") + "@" + emailDomain}</p>
           )}
 
-          <input type="password" placeholder="Mot de passe" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+          <input
+            type="password"
+            placeholder={isEditing ? "Nouveau mot de passe (optionnel)" : "Mot de passe"}
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
+            required={!isEditing}
+          />
           <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
             <option value="ACTIVE">Actif</option>
             <option value="INACTIVE">Inactif</option>
           </select>
-          <div className="toolbar-actions" style={{ gridColumn: "1 / -1" }}>
-            <button type="submit" className="action-btn">Creer l'utilisateur</button>
+          <div className="form-actions">
+            <button type="submit">{isEditing ? "Enregistrer" : "Creer l'utilisateur"}</button>
+            {isEditing && (
+              <button type="button" className="secondary-btn" onClick={cancelEdit}>
+                Annuler
+              </button>
+            )}
           </div>
         </form>
         {message && <p className="muted">{message}</p>}
         {resetMessage && <p className="muted">{resetMessage}</p>}
         {error && <p className="error-text">{error}</p>}
       </section>
-
-      {editingUserId && (
-        <section className="panel">
-          <h3>Modifier l'utilisateur #{editingUserId}</h3>
-          <form className="form-grid" onSubmit={handleUpdate}>
-            <input
-              placeholder="Prenom"
-              value={editForm.first_name}
-              onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
-              required
-            />
-            <input
-              placeholder="Nom"
-              value={editForm.last_name}
-              onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
-              required
-            />
-
-            {isSuperAdmin && (
-              <select value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}>
-                <option value="user">Utilisateur</option>
-                <option value="admin">Admin</option>
-                <option value="super_admin">Super admin</option>
-              </select>
-            )}
-
-            <select value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}>
-              <option value="ACTIVE">Actif</option>
-              <option value="INACTIVE">Inactif</option>
-            </select>
-
-            <input
-              type="password"
-              placeholder="Nouveau mot de passe (optionnel)"
-              value={editForm.password}
-              onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
-            />
-
-            <div className="toolbar-actions" style={{ gridColumn: "1 / -1" }}>
-              <button type="submit" className="action-btn">Enregistrer</button>
-              <button type="button" className="action-btn secondary-btn" onClick={cancelEdit}>
-                Annuler
-              </button>
-            </div>
-          </form>
-        </section>
-      )}
 
       <section className="panel">
         <h3>Utilisateurs ({users.length})</h3>
@@ -311,44 +268,59 @@ export default function AdminPage() {
                 <th>Role</th>
                 <th>Statut</th>
                 <th>Ecole</th>
-                {showActionsColumn && <th>Actions</th>}
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {users.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.id}</td>
-                  <td>{item.first_name} {item.last_name}</td>
-                  <td>{item.email}</td>
-                  <td>{roleLabel[item.role] || item.role}</td>
-                  <td>{item.status === "ACTIVE" ? <span className="status-pill active">Actif</span> : <span className="status-pill inactive">Inactif</span>}</td>
-                  <td>{item.school_name || "-"}</td>
-                  {showActionsColumn && (
+              {users.map((item) => {
+                const canEdit = isSuperAdmin || (isAdmin && item.role === "user");
+                const canDelete = isSuperAdmin && item.id !== user?.id;
+
+                return (
+                  <tr key={item.id}>
+                    <td>{item.id}</td>
+                    <td>{item.first_name} {item.last_name}</td>
+                    <td>{item.email}</td>
+                    <td>{roleLabel[item.role] || item.role}</td>
+                    <td>{item.status === "ACTIVE" ? "Actif" : "Inactif"}</td>
+                    <td>{item.school_name || "-"}</td>
                     <td>
                       <div className="table-actions">
-                        {canEditUser(item) && (
-                          <button type="button" className="action-btn" onClick={() => startEdit(item)}>
-                            Modifier
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          className="secondary-btn"
+                          onClick={() => handleEdit(item)}
+                          disabled={!canEdit}
+                        >
+                          Modifier
+                        </button>
                         {isSuperAdmin && (
                           <button
                             type="button"
-                            className="action-btn secondary-btn"
                             onClick={() => handleResetPassword(item)}
                             disabled={item.role === "super_admin"}
                           >
                             Reset MDP
                           </button>
                         )}
+                        {isSuperAdmin && (
+                          <button
+                            type="button"
+                            className="danger-btn"
+                            onClick={() => handleDelete(item)}
+                            disabled={!canDelete}
+                          >
+                            Supprimer
+                          </button>
+                        )}
                       </div>
                     </td>
-                  )}
-                </tr>
-              ))}
+                  </tr>
+                );
+              })}
               {!users.length && (
                 <tr>
-                  <td colSpan={showActionsColumn ? 7 : 6} className="table-empty">Aucun utilisateur trouve.</td>
+                  <td colSpan="7" className="table-empty">Aucun utilisateur trouve.</td>
                 </tr>
               )}
             </tbody>

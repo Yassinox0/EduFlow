@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { deleteSchool, getSchoolById, updateSchool, uploadSchoolLogo, importSchoolData } from "../services/schoolService";
+import { Link, useParams } from "react-router-dom";
+import { getSchoolById, updateSchool, uploadSchoolLogo, importSchoolData } from "../services/schoolService";
 
 const TEMPLATE_HEADERS = [
   "Nom",
@@ -20,8 +20,6 @@ const isValidImportFile = (file) => /\.(xlsx|xls|csv)$/i.test(file?.name || "");
 
 export default function SchoolDetailsPage() {
   const { id } = useParams();
-  const navigate = useNavigate();
-  const location = useLocation();
   const [school, setSchool] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -32,7 +30,6 @@ export default function SchoolDetailsPage() {
   const [importProgress, setImportProgress] = useState(0);
   const [isImporting, setIsImporting] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
   const load = async () => {
     try {
@@ -49,13 +46,6 @@ export default function SchoolDetailsPage() {
   useEffect(() => {
     load();
   }, [id]);
-
-  useEffect(() => {
-    if (location.state?.openEdit && school) {
-      setIsEditing(true);
-      window.history.replaceState({}, document.title);
-    }
-  }, [location.state?.openEdit, school]);
 
   const handleToggle = async () => {
     if (!school) return;
@@ -150,33 +140,6 @@ export default function SchoolDetailsPage() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!school) {
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Supprimer l'ecole « ${school.name} » ? Cette action est irreversible.`
-    );
-    if (!confirmed) {
-      return;
-    }
-
-    setError("");
-    setMessage("");
-    setDeleting(true);
-
-    try {
-      await deleteSchool(id);
-      navigate("/super-admin/schools", {
-        state: { message: `Ecole « ${school.name} » supprimee.` },
-      });
-    } catch (err) {
-      setError(err?.response?.data?.message || "Echec de suppression de l'ecole.");
-      setDeleting(false);
-    }
-  };
-
   if (!school) {
     return <section className="panel">Chargement...</section>;
   }
@@ -191,28 +154,9 @@ export default function SchoolDetailsPage() {
 
       {!isEditing && (
         <section className="panel">
-          <div className="toolbar-actions">
-            <button type="button" className="action-btn" onClick={() => setIsEditing(true)}>
-              Modifier
-            </button>
-            <button type="button" className="action-btn secondary-btn" onClick={handleToggle}>
-              {school.status === "ACTIVE" ? "Desactiver" : "Activer"}
-            </button>
-            <Link to={`/super-admin/schools/${school.id}/admin`} className="action-btn secondary-btn">
-              Creer l'admin principal
-            </Link>
-            <button
-              type="button"
-              className="action-btn danger-btn"
-              onClick={handleDelete}
-              disabled={deleting}
-            >
-              {deleting ? "Suppression..." : "Supprimer l'ecole"}
-            </button>
-            <Link to="/super-admin/schools" className="action-btn link-btn">
-              Retour a la liste
-            </Link>
-          </div>
+          <button type="button" onClick={() => setIsEditing(true)}>Modifier</button>
+          <button type="button" onClick={handleToggle} style={{ marginLeft: 12 }}>Activer / desactiver</button>
+          <Link to={`/super-admin/schools/${school.id}/admin`} style={{ marginLeft: 12 }}>Creer l'admin principal</Link>
           {message && <p className="muted">{message}</p>}
           {error && <p className="error-text">{error}</p>}
         </section>
@@ -301,10 +245,9 @@ export default function SchoolDetailsPage() {
             {logoFile && <p className="muted">Logo choisi: {logoFile.name}</p>}
             
             <div style={{ display: "flex", gap: "12px", gridColumn: "1/-1" }}>
-              <button type="submit" className="action-btn">Enregistrer les modifications</button>
+              <button type="submit">Enregistrer les modifications</button>
               <button
                 type="button"
-                className="action-btn secondary-btn"
                 onClick={() => {
                   setIsEditing(false);
                   setFormData(school);

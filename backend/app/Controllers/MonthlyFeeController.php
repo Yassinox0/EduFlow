@@ -16,6 +16,9 @@ class MonthlyFeeController
             'month_label' => isset($_GET['month_label']) ? (string)$_GET['month_label'] : null,
             'year_value' => isset($_GET['year_value']) ? (int)$_GET['year_value'] : null,
             'status' => isset($_GET['status']) ? (string)$_GET['status'] : null,
+            'search' => isset($_GET['search']) ? (string)$_GET['search'] : null,
+            'class_level' => isset($_GET['class_level']) ? (string)$_GET['class_level'] : null,
+            'class_name' => isset($_GET['class_name']) ? (string)$_GET['class_name'] : null,
         ];
 
         Response::json((new MonthlyFeeService())->getAll($filters));
@@ -71,6 +74,6 @@ class MonthlyFeeController
 
     public function unpaid(): void
     {
-        Response::json((new MonthlyFeeService())->getUnpaid());
+        Response::json((new MonthlyFeeService())->getUnpaid($_GET));
     }
 }

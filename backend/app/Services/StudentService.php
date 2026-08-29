@@ -11,7 +11,7 @@ use PDOException;
 
 class StudentService
 {
-    public function getAll(): array
+    public function getAll(array $filters = []): array
     {
         $pdo = Database::connect();
         [$role, $schoolId] = $this->authScope();
@@ -19,20 +19,76 @@ class StudentService
         $sql = '
             SELECT
                 s.*,
-                COALESCE(cl.name, s.class_level) AS class_level_name,
+                COALESCE(cl.level_name, cl.name, s.class_level) AS class_level_name,
+                cl.group_name AS class_group_name,
                 p.phone AS parent_phone
             FROM students s
             LEFT JOIN class_levels cl ON cl.id = s.class_level_id
             LEFT JOIN parents p ON p.id = s.parent_id
         ';
 
+        $conditions = [];
+        $params = [];
+
         if ($role === 'super_admin') {
-            $stmt = $pdo->query($sql . ' ORDER BY s.id DESC');
-            return $stmt->fetchAll();
+            $requestedSchoolId = isset($filters['school_id']) ? (int)$filters['school_id'] : 0;
+            if ($requestedSchoolId > 0) {
+                $conditions[] = 's.school_id = ?';
+                $params[] = $requestedSchoolId;
+            }
+        } else {
+            $conditions[] = 's.school_id = ?';
+            $params[] = $schoolId;
         }
 
-        $stmt = $pdo->prepare($sql . ' WHERE s.school_id = ? ORDER BY s.id DESC');
-        $stmt->execute([$schoolId]);
+        $requestedClassLevelId = isset($filters['class_level_id']) ? (int)$filters['class_level_id'] : 0;
+        if ($requestedClassLevelId > 0) {
+            $conditions[] = 's.class_level_id = ?';
+            $params[] = $requestedClassLevelId;
+        }
+
+        $search = trim((string)($filters['search'] ?? ''));
+        if ($search !== '') {
+            $conditions[] = '(
+                LOWER(s.first_name) LIKE ?
+                OR LOWER(s.last_name) LIKE ?
+                OR LOWER(CONCAT(s.first_name, " ", s.last_name)) LIKE ?
+                OR LOWER(CONCAT(s.last_name, " ", s.first_name)) LIKE ?
+            )';
+            $term = '%' . strtolower($search) . '%';
+            array_push($params, $term, $term, $term, $term);
+        }
+
+        $lastName = trim((string)($filters['last_name'] ?? ''));
+        if ($lastName !== '') {
+            $conditions[] = 'LOWER(s.last_name) LIKE ?';
+            $params[] = '%' . strtolower($lastName) . '%';
+        }
+
+        $firstName = trim((string)($filters['first_name'] ?? ''));
+        if ($firstName !== '') {
+            $conditions[] = 'LOWER(s.first_name) LIKE ?';
+            $params[] = '%' . strtolower($firstName) . '%';
+        }
+
+        $classLevel = trim((string)($filters['class_level'] ?? ''));
+        if ($classLevel !== '') {
+            $conditions[] = 'LOWER(COALESCE(cl.level_name, cl.name, s.class_level)) LIKE ?';
+            $params[] = '%' . strtolower($classLevel) . '%';
+        }
+
+        $className = trim((string)($filters['class_name'] ?? ''));
+        if ($className !== '') {
+            $conditions[] = 'LOWER(COALESCE(cl.group_name, s.class_name, "")) LIKE ?';
+            $params[] = '%' . strtolower($className) . '%';
+        }
+
+        if ($conditions) {
+            $sql .= ' WHERE ' . implode(' AND ', $conditions);
+        }
+
+        $stmt = $pdo->prepare($sql . ' ORDER BY s.last_name ASC, s.first_name ASC, s.id DESC');
+        $stmt->execute($params);
         return $stmt->fetchAll();
     }
 
@@ -61,8 +117,8 @@ class StudentService
         }
 
         $monthlyAmount = (float)($data['monthly_amount'] ?? 0);
-        if ($monthlyAmount <= 0) {
-            return ['error' => 'monthly_amount must be greater than 0'];
+        if ($monthlyAmount < 0) {
+            return ['error' => 'monthly_amount must be positive'];
         }
 
         $discountPercent = (float)($data['discount_percent'] ?? 0);
@@ -175,8 +231,8 @@ class StudentService
         }
 
         $monthlyAmount = isset($data['monthly_amount']) ? (float)$data['monthly_amount'] : (float)$student['monthly_amount'];
-        if ($monthlyAmount <= 0) {
-            return ['error' => 'monthly_amount must be greater than 0'];
+        if ($monthlyAmount < 0) {
+            return ['error' => 'monthly_amount must be positive'];
         }
 
         $discountPercent = isset($data['discount_percent']) ? (float)$data['discount_percent'] : (float)($student['discount_percent'] ?? 0);
