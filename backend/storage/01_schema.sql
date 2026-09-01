@@ -26,8 +26,12 @@ CREATE TABLE IF NOT EXISTS users (
     last_name VARCHAR(100) NOT NULL,
     email VARCHAR(150) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
-    role ENUM('super_admin', 'admin', 'user') NOT NULL,
+    role ENUM('super_admin', 'admin', 'user', 'professeur') NOT NULL,
     status ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+    gender ENUM('MALE', 'FEMALE') NULL,
+    phone VARCHAR(30) NULL,
+    address VARCHAR(255) NULL,
+    primary_school VARCHAR(150) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE SET NULL
 );
@@ -37,12 +41,109 @@ CREATE TABLE IF NOT EXISTS class_levels (
     school_id INT NOT NULL,
     name VARCHAR(100) NOT NULL,
     code VARCHAR(50) NULL,
+    level_name VARCHAR(180) NULL,
+    group_name VARCHAR(100) NULL,
+    school_year VARCHAR(20) NULL,
     sort_order INT NOT NULL DEFAULT 0,
     status ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY class_levels_school_name_unique (school_id, name),
     FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS teacher_class_levels (
+    teacher_id INT NOT NULL,
+    class_level_id INT NOT NULL,
+    PRIMARY KEY (teacher_id, class_level_id),
+    KEY teacher_class_levels_class_level_id_idx (class_level_id),
+    FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (class_level_id) REFERENCES class_levels(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS subjects (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    code VARCHAR(20) NOT NULL UNIQUE,
+    sort_order INT NOT NULL DEFAULT 0,
+    status ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP
+);
+
+INSERT INTO subjects (name, code, sort_order, status) VALUES
+('Français', 'FR', 1, 'ACTIVE'),
+('Arabe', 'AR', 2, 'ACTIVE'),
+('Anglais', 'ANG', 3, 'ACTIVE'),
+('Mathématiques', 'MATH', 4, 'ACTIVE'),
+('Histoire-Géographie', 'H.G', 5, 'ACTIVE'),
+('Éducation Islamique', 'I.I', 6, 'ACTIVE'),
+('Sport / EPS', 'EPS', 7, 'ACTIVE'),
+('SVT', 'SVT', 8, 'ACTIVE'),
+('Physique-Chimie', 'PC', 9, 'ACTIVE'),
+('Informatique', 'Info', 10, 'ACTIVE'),
+('Philosophie', 'PHILO', 11, 'ACTIVE')
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    sort_order = VALUES(sort_order),
+    status = VALUES(status);
+
+CREATE TABLE IF NOT EXISTS teacher_subjects (
+    teacher_id INT NOT NULL,
+    subject_id INT NOT NULL,
+    PRIMARY KEY (teacher_id, subject_id),
+    KEY teacher_subjects_subject_id_idx (subject_id),
+    FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS subject_class_levels (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    subject_id INT NOT NULL,
+    class_level_id INT NULL,
+    weekly_hours TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY subject_class_levels_unique (subject_id, class_level_id),
+    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
+    FOREIGN KEY (class_level_id) REFERENCES class_levels(id) ON DELETE CASCADE
+);
+
+INSERT IGNORE INTO subject_class_levels (subject_id, class_level_id)
+SELECT s.id, cl.id
+FROM subjects s
+CROSS JOIN class_levels cl
+WHERE
+    s.code IN ('FR', 'AR', 'ANG', 'MATH', 'H.G', 'I.I', 'EPS', 'SVT', 'PC', 'Info')
+    OR (
+        s.code = 'PHILO'
+        AND (
+            LOWER(CONCAT(cl.name, ' ', COALESCE(cl.code, ''))) LIKE '%tronc commun%'
+            OR UPPER(COALESCE(cl.code, '')) = 'TC'
+            OR LOWER(CONCAT(cl.name, ' ', COALESCE(cl.code, ''))) LIKE '%1 bac%'
+            OR LOWER(CONCAT(cl.name, ' ', COALESCE(cl.code, ''))) LIKE '%1bac%'
+            OR LOWER(CONCAT(cl.name, ' ', COALESCE(cl.code, ''))) LIKE '%2 bac%'
+            OR LOWER(CONCAT(cl.name, ' ', COALESCE(cl.code, ''))) LIKE '%2bac%'
+        )
+    );
+
+DELETE scl FROM subject_class_levels scl
+INNER JOIN subjects s ON s.id = scl.subject_id
+INNER JOIN class_levels cl ON cl.id = scl.class_level_id
+WHERE s.code = 'Info'
+  AND (
+      LOWER(CONCAT(cl.name, ' ', COALESCE(cl.code, ''))) LIKE '%1 bac%'
+      OR LOWER(CONCAT(cl.name, ' ', COALESCE(cl.code, ''))) LIKE '%1bac%'
+      OR LOWER(CONCAT(cl.name, ' ', COALESCE(cl.code, ''))) LIKE '%2 bac%'
+      OR LOWER(CONCAT(cl.name, ' ', COALESCE(cl.code, ''))) LIKE '%2bac%'
+  );
+
+DELETE scl FROM subject_class_levels scl
+INNER JOIN subjects s ON s.id = scl.subject_id
+INNER JOIN class_levels cl ON cl.id = scl.class_level_id
+WHERE s.code = 'H.G'
+  AND (
+      LOWER(CONCAT(cl.name, ' ', COALESCE(cl.code, ''))) LIKE '%2 bac%'
+      OR LOWER(CONCAT(cl.name, ' ', COALESCE(cl.code, ''))) LIKE '%2bac%'
+  );
 
 CREATE TABLE IF NOT EXISTS parents (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -129,4 +230,33 @@ CREATE TABLE IF NOT EXISTS payments (
     FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
     FOREIGN KEY (monthly_fee_id) REFERENCES monthly_fees(id) ON DELETE CASCADE,
     FOREIGN KEY (payment_method_id) REFERENCES payment_methods(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS schedules (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    school_id INT NOT NULL,
+    class_level_id INT NOT NULL,
+    subject_id INT NULL,
+    subject VARCHAR(120) NOT NULL,
+    teacher_id INT NULL,
+    teacher_name VARCHAR(120) NULL,
+    room VARCHAR(80) NULL,
+    is_external TINYINT(1) NOT NULL DEFAULT 0,
+    schedule_type ENUM('eduflow_course', 'external_busy') NOT NULL DEFAULT 'eduflow_course',
+    year_value INT NULL,
+    week_number TINYINT NULL,
+    day_of_week ENUM('MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY') NOT NULL,
+    day_order TINYINT NOT NULL,
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+    notes TEXT NULL,
+    status ENUM('ACTIVE', 'CANCELLED') NOT NULL DEFAULT 'ACTIVE',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY schedules_school_day_idx (school_id, year_value, week_number, day_order, start_time),
+    KEY schedules_class_day_idx (class_level_id, year_value, week_number, day_of_week, start_time),
+    KEY schedules_teacher_day_idx (teacher_id, year_value, week_number, day_of_week, start_time),
+    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE SET NULL,
+    FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE,
+    FOREIGN KEY (class_level_id) REFERENCES class_levels(id) ON DELETE CASCADE
 );

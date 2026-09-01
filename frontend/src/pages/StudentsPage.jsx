@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { DEFAULT_LEVEL_OPTIONS, normalizeSearch } from "../config/schoolOptions";
+import { DEFAULT_LEVEL_OPTIONS } from "../config/schoolOptions";
 import { getClassLevels } from "../services/classLevelService";
 import { createStudent, deleteStudent, getStudents, updateStudent } from "../services/studentService";
 
@@ -36,17 +36,17 @@ export default function StudentsPage() {
   });
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [searchApplied, setSearchApplied] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const loadData = async () => {
-    const [studentsData, levelsData] = await Promise.all([getStudents(), getClassLevels()]);
-    setStudents(Array.isArray(studentsData) ? studentsData : []);
+  const loadClassLevels = async () => {
+    const levelsData = await getClassLevels();
     setClassLevels(Array.isArray(levelsData) ? levelsData : []);
   };
 
   useEffect(() => {
-    loadData().catch(() => setError("Impossible de charger les eleves."));
+    loadClassLevels().catch(() => setError("Impossible de charger les niveaux."));
   }, []);
 
   const averageMonthlyFee = useMemo(() => {
@@ -65,20 +65,12 @@ export default function StudentsPage() {
     return DEFAULT_LEVEL_OPTIONS.map((name) => ({ id: name, name, fromDatabase: false }));
   }, [classLevels]);
 
-  const filteredStudents = useMemo(() => {
-    const matchesText = (value, search) =>
-      !search || normalizeSearch(value).includes(normalizeSearch(search));
+  const hasActiveFilters = useMemo(
+    () => Object.values(filters).some((value) => String(value || "").trim() !== ""),
+    [filters]
+  );
 
-    return students.filter((student) => {
-      const level = student.class_level_name || student.class_level || "";
-      return (
-        matchesText(student.last_name, filters.last_name) &&
-        matchesText(student.first_name, filters.first_name) &&
-        matchesText(level, filters.class_level) &&
-        matchesText(student.class_name || student.school_year, filters.class_name)
-      );
-    });
-  }, [filters, students]);
+  const filteredStudents = students;
 
   const effectiveAmountPreview = useMemo(() => {
     const amount = Number(form.monthly_amount || 0);
@@ -126,7 +118,9 @@ export default function StudentsPage() {
       }
       setForm(emptyForm);
       setEditingId(null);
-      await loadData();
+      if (searchApplied) {
+        await applyStudentFilters();
+      }
     } catch (err) {
       setError(err?.response?.data?.message || err?.message || "Echec de creation eleve.");
     } finally {
@@ -176,10 +170,54 @@ export default function StudentsPage() {
         setEditingId(null);
         setForm(emptyForm);
       }
-      await loadData();
+      if (searchApplied) {
+        await applyStudentFilters();
+      }
     } catch (err) {
       setError(err?.response?.data?.message || "Echec de suppression eleve.");
     }
+  };
+
+  const applyStudentFilters = async (e) => {
+    if (e) {
+      e.preventDefault();
+    }
+
+    setError("");
+    setMessage("");
+
+    if (!hasActiveFilters) {
+      setStudents([]);
+      setSearchApplied(false);
+      setError("Veuillez saisir une recherche ou choisir un filtre.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const data = await getStudents({
+        last_name: filters.last_name || undefined,
+        first_name: filters.first_name || undefined,
+        class_level: filters.class_level || undefined,
+        class_name: filters.class_name || undefined,
+      });
+      setStudents(Array.isArray(data) ? data : []);
+      setSearchApplied(true);
+    } catch (err) {
+      setStudents([]);
+      setSearchApplied(false);
+      setError(err?.response?.data?.message || "Impossible de charger les eleves.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetFilters = () => {
+    setFilters({ last_name: "", first_name: "", class_level: "", class_name: "" });
+    setStudents([]);
+    setSearchApplied(false);
+    setError("");
+    setMessage("");
   };
 
   return (
@@ -315,7 +353,7 @@ export default function StudentsPage() {
 
       <section className="panel">
         <h3>Liste des eleves</h3>
-        <div className="filters-grid">
+        <form className="filters-grid" onSubmit={applyStudentFilters}>
           <input
             placeholder="Filtrer par nom"
             value={filters.last_name}
@@ -343,11 +381,14 @@ export default function StudentsPage() {
           <button
             type="button"
             className="secondary-btn"
-            onClick={() => setFilters({ last_name: "", first_name: "", class_level: "", class_name: "" })}
+            onClick={resetFilters}
           >
             Réinitialiser les filtres
           </button>
-        </div>
+          <button type="submit" disabled={loading}>
+            {loading ? "Recherche..." : "Rechercher"}
+          </button>
+        </form>
         <div className="table-wrap">
           <table>
             <thead>
@@ -401,7 +442,7 @@ export default function StudentsPage() {
               {filteredStudents.length === 0 && (
                 <tr>
                   <td colSpan="11" className="table-empty">
-                    Aucun eleve trouve.
+                    {searchApplied ? "Aucun eleve trouve." : "Lancez une recherche ou appliquez un filtre."}
                   </td>
                 </tr>
               )}

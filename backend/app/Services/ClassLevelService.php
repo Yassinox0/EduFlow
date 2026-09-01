@@ -54,6 +54,9 @@ class ClassLevelService
             return ['error' => 'Class level name is required'];
         }
 
+        $levelName = $this->nullable($data['level_name'] ?? $name);
+        $groupName = $this->nullable($data['group_name'] ?? null);
+        $schoolYear = $this->nullable($data['school_year'] ?? null);
         $status = 'ACTIVE';
         $nextSortOrderStmt = $pdo->prepare('SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_value FROM class_levels WHERE school_id = ?');
         $nextSortOrderStmt->execute([$schoolId]);
@@ -62,17 +65,31 @@ class ClassLevelService
         $code = (string)$nextSortOrder;
 
         try {
-            $stmt = $pdo->prepare('
-                INSERT INTO class_levels (school_id, name, code, sort_order, status)
-                VALUES (?, ?, ?, ?, ?)
-            ');
-            $stmt->execute([
-                $schoolId,
-                $name,
-                $code,
-                $sortOrder,
-                $status,
-            ]);
+            $columns = ['school_id', 'name', 'code', 'sort_order', 'status'];
+            $values = [$schoolId, $name, $code, $sortOrder, $status];
+
+            if ($this->columnExists('level_name')) {
+                $columns[] = 'level_name';
+                $values[] = $levelName;
+            }
+
+            if ($this->columnExists('group_name')) {
+                $columns[] = 'group_name';
+                $values[] = $groupName;
+            }
+
+            if ($this->columnExists('school_year')) {
+                $columns[] = 'school_year';
+                $values[] = $schoolYear;
+            }
+
+            $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+            $stmt = $pdo->prepare(sprintf(
+                'INSERT INTO class_levels (%s) VALUES (%s)',
+                implode(', ', $columns),
+                $placeholders
+            ));
+            $stmt->execute($values);
         } catch (PDOException $e) {
             if (($e->errorInfo[1] ?? null) === 1146) {
                 return ['error' => 'Table class_levels absente. Lancez la migration 2026_05_11_user_student_payment_upgrade.sql'];
@@ -83,13 +100,19 @@ class ClassLevelService
             return ['error' => 'Class level creation failed'];
         }
 
+        $createdId = (int)$pdo->lastInsertId();
+        (new SubjectService())->ensureSubjectsForClassLevel($createdId);
+
         return [
-            'id' => (int)$pdo->lastInsertId(),
+            'id' => $createdId,
             'school_id' => $schoolId,
             'name' => $name,
             'code' => $code,
             'sort_order' => $sortOrder,
             'status' => $status,
+            'level_name' => $levelName,
+            'group_name' => $groupName,
+            'school_year' => $schoolYear,
             'message' => 'Class level created successfully',
         ];
     }
@@ -134,14 +157,42 @@ class ClassLevelService
         }
 
         $sortOrder = isset($data['sort_order']) ? (int)$data['sort_order'] : (int)$classLevel['sort_order'];
+        $levelName = array_key_exists('level_name', $data)
+            ? $this->nullable($data['level_name'])
+            : $this->nullable($classLevel['level_name'] ?? null);
+        $groupName = array_key_exists('group_name', $data)
+            ? $this->nullable($data['group_name'])
+            : $this->nullable($classLevel['group_name'] ?? null);
+        $schoolYear = array_key_exists('school_year', $data)
+            ? $this->nullable($data['school_year'])
+            : $this->nullable($classLevel['school_year'] ?? null);
 
         try {
+            $sets = ['name = ?', 'sort_order = ?', 'status = ?'];
+            $values = [$name, $sortOrder, $status];
+
+            if ($this->columnExists('level_name')) {
+                $sets[] = 'level_name = ?';
+                $values[] = $levelName;
+            }
+
+            if ($this->columnExists('group_name')) {
+                $sets[] = 'group_name = ?';
+                $values[] = $groupName;
+            }
+
+            if ($this->columnExists('school_year')) {
+                $sets[] = 'school_year = ?';
+                $values[] = $schoolYear;
+            }
+
+            $values[] = $classLevelId;
             $stmt = $pdo->prepare('
                 UPDATE class_levels
-                SET name = ?, sort_order = ?, status = ?
+                SET ' . implode(', ', $sets) . '
                 WHERE id = ?
             ');
-            $stmt->execute([$name, $sortOrder, $status, $classLevelId]);
+            $stmt->execute($values);
 
             return [
                 'id' => $classLevelId,
@@ -150,6 +201,9 @@ class ClassLevelService
                 'code' => $classLevel['code'],
                 'sort_order' => $sortOrder,
                 'status' => $status,
+                'level_name' => $levelName,
+                'group_name' => $groupName,
+                'school_year' => $schoolYear,
                 'message' => 'Class level updated successfully',
             ];
         } catch (PDOException) {
@@ -166,15 +220,6 @@ class ClassLevelService
             return ['error' => 'Class level not found'];
         }
 
-        // Check if class level is used by any students
-        $usageStmt = $pdo->prepare('SELECT COUNT(*) as count FROM students WHERE class_level_id = ?');
-        $usageStmt->execute([$classLevelId]);
-        $usage = $usageStmt->fetch();
-
-        if ($usage && (int)$usage['count'] > 0) {
-            return ['error' => 'Cannot delete class level because it is used by students'];
-        }
-
         try {
             $stmt = $pdo->prepare('DELETE FROM class_levels WHERE id = ?');
             $stmt->execute([$classLevelId]);
@@ -183,5 +228,29 @@ class ClassLevelService
         } catch (PDOException) {
             return ['error' => 'Class level deletion failed'];
         }
+    }
+
+    private function nullable(mixed $value): ?string
+    {
+        $str = trim((string)$value);
+        return $str === '' ? null : $str;
+    }
+
+    private function columnExists(string $column): bool
+    {
+        static $columns = null;
+
+        if ($columns === null) {
+            $pdo = Database::connect();
+            $stmt = $pdo->query("
+                SELECT column_name AS column_name
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'class_levels'
+            ");
+            $columns = array_fill_keys(array_map('strtolower', array_column($stmt->fetchAll(), 'column_name')), true);
+        }
+
+        return isset($columns[strtolower($column)]);
     }
 }

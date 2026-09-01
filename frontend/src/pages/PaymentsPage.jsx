@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { MONTH_OPTIONS, normalizeSearch } from "../config/schoolOptions";
 import { getPaymentMethods } from "../services/paymentMethodService";
 import { createPayment, getPayments } from "../services/paymentService";
-import { downloadReceiptPdf } from "../services/receiptService";
 import { getStudents } from "../services/studentService";
 
 const formatMoney = (value) =>
@@ -33,6 +32,8 @@ export default function PaymentsPage() {
   const [students, setStudents] = useState([]);
   const [paymentMethods, setPaymentMethods] = useState([]);
   const [form, setForm] = useState(emptyForm);
+  const [studentSearch, setStudentSearch] = useState("");
+  const [studentSearchApplied, setStudentSearchApplied] = useState(false);
   const [filters, setFilters] = useState({
     last_name: "",
     first_name: "",
@@ -42,23 +43,20 @@ export default function PaymentsPage() {
     status: "",
   });
   const [loading, setLoading] = useState(false);
-  const [downloadingId, setDownloadingId] = useState(null);
+  const [studentLoading, setStudentLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const loadData = async () => {
-    const [paymentsData, studentsData, methodsData] = await Promise.all([
+    const [paymentsData, methodsData] = await Promise.all([
       getPayments(),
-      getStudents(),
       getPaymentMethods(),
     ]);
 
     const safePayments = Array.isArray(paymentsData) ? paymentsData : [];
-    const safeStudents = Array.isArray(studentsData) ? studentsData : [];
     const safeMethods = Array.isArray(methodsData) ? methodsData : [];
 
     setPayments(safePayments);
-    setStudents(safeStudents);
     setPaymentMethods(safeMethods);
 
     if (!form.payment_method_id && safeMethods.length) {
@@ -77,12 +75,12 @@ export default function PaymentsPage() {
 
   const levelOptions = useMemo(() => {
     const unique = new Set(
-      students
-        .map((student) => student.class_level_name || student.class_level)
+      payments
+        .map((payment) => payment.class_level_name)
         .filter(Boolean)
     );
     return Array.from(unique).sort((a, b) => a.localeCompare(b));
-  }, [students]);
+  }, [payments]);
 
   const filteredPayments = useMemo(() => {
     const matchesText = (value, search) =>
@@ -97,18 +95,6 @@ export default function PaymentsPage() {
       (!filters.status || payment.payment_status === filters.status)
     ));
   }, [filters, payments]);
-
-  const handleDownloadReceipt = async (paymentId) => {
-    setError("");
-    setDownloadingId(paymentId);
-    try {
-      await downloadReceiptPdf(paymentId);
-    } catch (err) {
-      setError(err?.message || "Impossible de telecharger le recu PDF.");
-    } finally {
-      setDownloadingId(null);
-    }
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -128,17 +114,10 @@ export default function PaymentsPage() {
 
       const result = await createPayment(payload);
       setMessage(
-        `Paiement #${result.id} enregistre. Statut mensualite: ${statusLabel(result.monthly_fee_status)}, reste: ${formatMoney(
+        `Paiement enregistre. Statut mensualite: ${statusLabel(result.monthly_fee_status)}, reste: ${formatMoney(
           result.monthly_fee_remaining_amount
-        )}. Recu PDF telecharge.`
+        )}`
       );
-      try {
-        await downloadReceiptPdf(result.id);
-      } catch {
-        setMessage(
-          `Paiement #${result.id} enregistre, mais le recu PDF n'a pas pu etre genere automatiquement.`
-        );
-      }
       setForm((prev) => ({
         ...emptyForm,
         payment_method_id: prev.payment_method_id,
@@ -151,9 +130,36 @@ export default function PaymentsPage() {
     }
   };
 
+  const searchStudents = async (e) => {
+    e.preventDefault();
+    const search = studentSearch.trim();
+    setError("");
+    setMessage("");
+
+    if (!search) {
+      setStudents([]);
+      setStudentSearchApplied(false);
+      setError("Saisissez un nom ou un prenom pour chercher un eleve.");
+      return;
+    }
+
+    setStudentLoading(true);
+    try {
+      const data = await getStudents({ search });
+      setStudents(Array.isArray(data) ? data : []);
+      setStudentSearchApplied(true);
+    } catch (err) {
+      setStudents([]);
+      setStudentSearchApplied(false);
+      setError(err?.response?.data?.message || "Impossible de rechercher les eleves.");
+    } finally {
+      setStudentLoading(false);
+    }
+  };
+
   return (
     <div className="admin-grid">
-      <section className="panel hero-panel">
+      <section className="panel">
         <h2>Paiements</h2>
         <p className="muted">Saisie et tracabilite des encaissements mensuels.</p>
       </section>
@@ -173,19 +179,34 @@ export default function PaymentsPage() {
 
       <section className="panel">
         <h3>Enregistrer un paiement</h3>
+        <form className="filters-grid" onSubmit={searchStudents}>
+          <input
+            placeholder="Rechercher un eleve par nom ou prenom"
+            value={studentSearch}
+            onChange={(e) => setStudentSearch(e.target.value)}
+          />
+          <button type="submit" disabled={studentLoading}>
+            {studentLoading ? "Recherche..." : "Rechercher l'eleve"}
+          </button>
+        </form>
         <form className="form-grid" onSubmit={handleSubmit}>
           <select
             value={form.student_id}
             onChange={(e) => setForm({ ...form, student_id: e.target.value })}
             required
           >
-            <option value="">Selectionner un eleve</option>
+            <option value="">
+              {studentSearchApplied ? "Selectionner un eleve" : "Cherchez d'abord un eleve"}
+            </option>
             {students.map((student) => (
               <option key={student.id} value={student.id}>
                 {student.first_name} {student.last_name}
               </option>
             ))}
           </select>
+          {studentSearchApplied && students.length === 0 && (
+            <p className="muted">Aucun eleve trouve pour cette recherche.</p>
+          )}
           <select
             value={form.month_label}
             onChange={(e) => setForm({ ...form, month_label: e.target.value })}
@@ -309,7 +330,6 @@ export default function PaymentsPage() {
                 <th>Date</th>
                 <th>Mode</th>
                 <th>Statut</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -327,21 +347,11 @@ export default function PaymentsPage() {
                   <td>{payment.payment_date}</td>
                   <td>{payment.payment_method_label || payment.payment_method}</td>
                   <td>{statusLabel(payment.payment_status)}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="action-btn"
-                      onClick={() => handleDownloadReceipt(payment.id)}
-                      disabled={downloadingId === payment.id}
-                    >
-                      {downloadingId === payment.id ? "..." : "Recu PDF"}
-                    </button>
-                  </td>
                 </tr>
               ))}
               {filteredPayments.length === 0 && (
                 <tr>
-                  <td colSpan="11" className="table-empty">
+                  <td colSpan="10" className="table-empty">
                     Aucun paiement trouve.
                   </td>
                 </tr>

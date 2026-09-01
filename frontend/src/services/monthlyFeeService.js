@@ -10,8 +10,8 @@ export const getMonthlyFeeById = async (id) => {
   return response.data;
 };
 
-export const getUnpaidMonthlyFees = async () => {
-  const response = await api.get("/api/monthly-fees/unpaid");
+export const getUnpaidMonthlyFees = async (params) => {
+  const response = await api.get("/api/monthly-fees/unpaid", { params });
   return response.data;
 };
 

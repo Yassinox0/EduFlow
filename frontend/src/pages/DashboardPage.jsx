@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { getDashboardStats } from "../services/dashboardService";
-import { getDashboardAlerts } from "../services/alertService";
 import { SCHOOL_NAME } from "../config/brand";
-import AlertList from "../components/dashboard/AlertList";
 
 const formatMoney = (value) =>
   new Intl.NumberFormat("fr-MA", { style: "currency", currency: "MAD" }).format(
@@ -25,7 +23,6 @@ export default function DashboardPage() {
     recent_payments: [],
     top_unpaid_students: [],
   });
-  const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -33,10 +30,9 @@ export default function DashboardPage() {
     setLoading(true);
     setError("");
 
-    Promise.all([getDashboardStats(), getDashboardAlerts()])
-      .then(([statsData, alertsData]) => {
+    getDashboardStats()
+      .then((statsData) => {
         setStats(statsData);
-        setAlerts(alertsData);
       })
       .catch(() => setError("Impossible de charger le dashboard."))
       .finally(() => setLoading(false));
@@ -75,9 +71,9 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <section className="panel hero-panel">
+      <section className="panel">
         <h2>Dashboard</h2>
-        <p className="muted">Chargement des indicateurs...</p>
+        <p className="muted">Chargement...</p>
       </section>
     );
   }
@@ -172,8 +168,6 @@ export default function DashboardPage() {
           </div>
         </article>
       </section>
-
-      <AlertList alerts={alerts} />
     </div>
   );
 }

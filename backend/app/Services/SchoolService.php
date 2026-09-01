@@ -22,7 +22,8 @@ class SchoolService
         $pdo = Database::connect();
         $stmt = $pdo->prepare('SELECT id, name, code, slug, email_domain, logo_path, phone, address, city, country, primary_color, secondary_color, currency, status, created_at FROM schools WHERE id = ? LIMIT 1');
         $stmt->execute([$schoolId]);
-        return $stmt->fetch();
+        $school = $stmt->fetch();
+        return $school ? $this->withLogoDataUrl($school) : false;
     }
 
     public function create(array $data): array
@@ -200,7 +201,7 @@ class SchoolService
 
         if ($role === 'super_admin') {
             $schools = $this->listAll();
-            return $schools[0] ?? [
+            $school = $schools[0] ?? [
                 'id' => null,
                 'name' => null,
                 'code' => null,
@@ -209,10 +210,11 @@ class SchoolService
                 'logo_path' => null,
                 'status' => null,
             ];
+            return $this->withLogoDataUrl($school);
         }
 
         $school = $schoolId ? $this->getById($schoolId) : false;
-        return $school ?: [
+        return $this->withLogoDataUrl($school ?: [
             'id' => null,
             'name' => null,
             'code' => null,
@@ -220,7 +222,36 @@ class SchoolService
             'email_domain' => null,
             'logo_path' => null,
             'status' => null,
-        ];
+        ]);
+    }
+
+    private function withLogoDataUrl(array $school): array
+    {
+        $school['logo_data_url'] = null;
+        $logoPath = trim((string)($school['logo_path'] ?? ''));
+        if ($logoPath === '' || preg_match('/^https?:\/\//i', $logoPath)) {
+            return $school;
+        }
+
+        $normalized = ltrim(str_replace('\\', '/', $logoPath), '/');
+        $absolutePath = realpath(__DIR__ . '/../../public/' . $normalized);
+        $publicRoot = realpath(__DIR__ . '/../../public');
+        if (!$absolutePath || !$publicRoot || !str_starts_with($absolutePath, $publicRoot) || !is_file($absolutePath)) {
+            return $school;
+        }
+
+        $mime = mime_content_type($absolutePath) ?: 'image/png';
+        if (!str_starts_with($mime, 'image/')) {
+            return $school;
+        }
+
+        $content = file_get_contents($absolutePath);
+        if ($content === false) {
+            return $school;
+        }
+
+        $school['logo_data_url'] = 'data:' . $mime . ';base64,' . base64_encode($content);
+        return $school;
     }
 
     private function generateUniqueEmail(string $localPart, string $domain): string
@@ -267,26 +298,8 @@ class SchoolService
             return ['error' => 'School not found'];
         }
 
-        // Check if school has users
-        $pdo = Database::connect();
-        $usersStmt = $pdo->prepare('SELECT COUNT(*) as count FROM users WHERE school_id = ?');
-        $usersStmt->execute([$schoolId]);
-        $usersCount = $usersStmt->fetch();
-
-        if ($usersCount && (int)$usersCount['count'] > 0) {
-            return ['error' => 'Cannot delete school with existing users'];
-        }
-
-        // Check if school has students
-        $studentsStmt = $pdo->prepare('SELECT COUNT(*) as count FROM students WHERE school_id = ?');
-        $studentsStmt->execute([$schoolId]);
-        $studentsCount = $studentsStmt->fetch();
-
-        if ($studentsCount && (int)$studentsCount['count'] > 0) {
-            return ['error' => 'Cannot delete school with existing students'];
-        }
-
         try {
+            $pdo = Database::connect();
             $stmt = $pdo->prepare('DELETE FROM schools WHERE id = ?');
             $stmt->execute([$schoolId]);
 
