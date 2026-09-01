@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { MONTH_OPTIONS } from "../config/schoolOptions";
 import { getMonthlyFees } from "../services/monthlyFeeService";
 
 const formatMoney = (value) =>
@@ -79,11 +80,15 @@ export default function MonthlyFeesPage() {
       <section className="panel">
         <h3>Filtres</h3>
         <form className="form-grid" onSubmit={applyFilters}>
-          <input
-            placeholder="Mois (01-12)"
+          <select
             value={filters.month_label}
             onChange={(e) => setFilters({ ...filters, month_label: e.target.value })}
-          />
+          >
+            <option value="">Tous les mois</option>
+            {MONTH_OPTIONS.map((month) => (
+              <option key={month.value} value={month.value}>{month.label}</option>
+            ))}
+          </select>
           <input
             type="number"
             placeholder="Annee"

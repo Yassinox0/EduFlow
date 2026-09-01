@@ -259,4 +259,40 @@ class SchoolService
         $str = trim((string)$value);
         return $str === '' ? null : $str;
     }
+
+    public function delete(int $schoolId): array
+    {
+        $school = $this->getById($schoolId);
+        if (!$school) {
+            return ['error' => 'School not found'];
+        }
+
+        // Check if school has users
+        $pdo = Database::connect();
+        $usersStmt = $pdo->prepare('SELECT COUNT(*) as count FROM users WHERE school_id = ?');
+        $usersStmt->execute([$schoolId]);
+        $usersCount = $usersStmt->fetch();
+
+        if ($usersCount && (int)$usersCount['count'] > 0) {
+            return ['error' => 'Cannot delete school with existing users'];
+        }
+
+        // Check if school has students
+        $studentsStmt = $pdo->prepare('SELECT COUNT(*) as count FROM students WHERE school_id = ?');
+        $studentsStmt->execute([$schoolId]);
+        $studentsCount = $studentsStmt->fetch();
+
+        if ($studentsCount && (int)$studentsCount['count'] > 0) {
+            return ['error' => 'Cannot delete school with existing students'];
+        }
+
+        try {
+            $stmt = $pdo->prepare('DELETE FROM schools WHERE id = ?');
+            $stmt->execute([$schoolId]);
+
+            return ['id' => $schoolId, 'message' => 'School deleted successfully'];
+        } catch (PDOException) {
+            return ['error' => 'School deletion failed'];
+        }
+    }
 }

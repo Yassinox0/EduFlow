@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { DEFAULT_LEVEL_OPTIONS, normalizeSearch } from "../config/schoolOptions";
 import { getClassLevels } from "../services/classLevelService";
 import { createStudent, deleteStudent, getStudents, updateStudent } from "../services/studentService";
 
@@ -11,8 +12,11 @@ const emptyForm = {
   first_name: "",
   last_name: "",
   date_of_birth: "",
+  gender: "",
+  class_name: "",
   parent_name: "",
   parent_phone: "",
+  address: "",
   monthly_amount: "",
   discount_percent: "0",
   school_year: "",
@@ -24,6 +28,12 @@ export default function StudentsPage() {
   const [students, setStudents] = useState([]);
   const [classLevels, setClassLevels] = useState([]);
   const [form, setForm] = useState(emptyForm);
+  const [filters, setFilters] = useState({
+    last_name: "",
+    first_name: "",
+    class_level: "",
+    class_name: "",
+  });
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -47,6 +57,29 @@ export default function StudentsPage() {
     return total / students.length;
   }, [students]);
 
+  const levelOptions = useMemo(() => {
+    if (classLevels.length) {
+      return classLevels.map((item) => ({ id: item.id, name: item.name, fromDatabase: true }));
+    }
+
+    return DEFAULT_LEVEL_OPTIONS.map((name) => ({ id: name, name, fromDatabase: false }));
+  }, [classLevels]);
+
+  const filteredStudents = useMemo(() => {
+    const matchesText = (value, search) =>
+      !search || normalizeSearch(value).includes(normalizeSearch(search));
+
+    return students.filter((student) => {
+      const level = student.class_level_name || student.class_level || "";
+      return (
+        matchesText(student.last_name, filters.last_name) &&
+        matchesText(student.first_name, filters.first_name) &&
+        matchesText(level, filters.class_level) &&
+        matchesText(student.class_name || student.school_year, filters.class_name)
+      );
+    });
+  }, [filters, students]);
+
   const effectiveAmountPreview = useMemo(() => {
     const amount = Number(form.monthly_amount || 0);
     const discount = Number(form.discount_percent || 0);
@@ -62,20 +95,25 @@ export default function StudentsPage() {
 
     try {
       const classLevelId = form.class_level_id ? Number(form.class_level_id) : null;
-      if (!classLevelId) {
-        throw new Error("Veuillez selectionner une classe.");
+      const selectedFallbackLevel = !classLevels.length ? form.class_level_id : "";
+      if (!classLevelId && !selectedFallbackLevel) {
+        throw new Error("Veuillez selectionner un niveau scolaire.");
       }
 
       const payload = {
         first_name: form.first_name.trim(),
         last_name: form.last_name.trim(),
         date_of_birth: form.date_of_birth || null,
+        gender: form.gender.trim() || null,
+        class_name: form.class_name.trim() || null,
         parent_name: form.parent_name.trim(),
         parent_phone: form.parent_phone.trim(),
+        address: form.address.trim() || null,
         monthly_amount: Number(form.monthly_amount || 0),
         discount_percent: Number(form.discount_percent || 0),
         school_year: form.school_year.trim() || null,
-        class_level_id: classLevelId,
+        class_level_id: classLevelId || undefined,
+        class_level: selectedFallbackLevel || undefined,
         status: form.status,
       };
 
@@ -110,8 +148,11 @@ export default function StudentsPage() {
       first_name: student.first_name || "",
       last_name: student.last_name || "",
       date_of_birth: student.date_of_birth || "",
+      gender: student.gender || "",
+      class_name: student.class_name || "",
       parent_name: student.parent_name || "",
       parent_phone: student.parent_phone || student.phone || "",
+      address: student.address || "",
       monthly_amount: student.monthly_amount != null ? String(student.monthly_amount) : "",
       discount_percent: student.discount_percent != null ? String(student.discount_percent) : "0",
       school_year: student.school_year || "",
@@ -183,6 +224,16 @@ export default function StudentsPage() {
             value={form.date_of_birth}
             onChange={(e) => setForm({ ...form, date_of_birth: e.target.value })}
           />
+          <select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}>
+            <option value="">Sexe</option>
+            <option value="F">Fille</option>
+            <option value="M">Garcon</option>
+          </select>
+          <input
+            placeholder="Classe"
+            value={form.class_name}
+            onChange={(e) => setForm({ ...form, class_name: e.target.value })}
+          />
           <input
             placeholder="Nom du parent"
             value={form.parent_name}
@@ -194,6 +245,11 @@ export default function StudentsPage() {
             value={form.parent_phone}
             onChange={(e) => setForm({ ...form, parent_phone: e.target.value })}
             required
+          />
+          <input
+            placeholder="Adresse"
+            value={form.address}
+            onChange={(e) => setForm({ ...form, address: e.target.value })}
           />
           <input
             type="number"
@@ -223,14 +279,14 @@ export default function StudentsPage() {
             onChange={(e) => setForm({ ...form, class_level_id: e.target.value })}
             required
           >
-            <option value="">Choisir un niveau existant</option>
-            {classLevels.map((item) => (
+            <option value="">Choisir un niveau scolaire</option>
+            {levelOptions.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
               </option>
             ))}
           </select>
-          <p className="muted">Si la classe n'existe pas, cree-la d'abord dans le menu Classes.</p>
+          <p className="muted">Les niveaux de la base sont charges automatiquement; sinon une liste par defaut est utilisee.</p>
           <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
             <option value="ACTIVE">Actif</option>
             <option value="INACTIVE">Inactif</option>
@@ -259,6 +315,39 @@ export default function StudentsPage() {
 
       <section className="panel">
         <h3>Liste des eleves</h3>
+        <div className="filters-grid">
+          <input
+            placeholder="Filtrer par nom"
+            value={filters.last_name}
+            onChange={(e) => setFilters({ ...filters, last_name: e.target.value })}
+          />
+          <input
+            placeholder="Filtrer par prenom"
+            value={filters.first_name}
+            onChange={(e) => setFilters({ ...filters, first_name: e.target.value })}
+          />
+          <select
+            value={filters.class_level}
+            onChange={(e) => setFilters({ ...filters, class_level: e.target.value })}
+          >
+            <option value="">Tous les niveaux</option>
+            {levelOptions.map((item) => (
+              <option key={item.id} value={item.name}>{item.name}</option>
+            ))}
+          </select>
+          <input
+            placeholder="Filtrer par classe"
+            value={filters.class_name}
+            onChange={(e) => setFilters({ ...filters, class_name: e.target.value })}
+          />
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={() => setFilters({ last_name: "", first_name: "", class_level: "", class_name: "" })}
+          >
+            Réinitialiser les filtres
+          </button>
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -266,6 +355,7 @@ export default function StudentsPage() {
                 <th>Nom</th>
                 <th>Prenom</th>
                 <th>Niveau</th>
+                <th>Classe</th>
                 <th>Annee scolaire</th>
                 <th>Parent</th>
                 <th>Telephone parent</th>
@@ -276,11 +366,12 @@ export default function StudentsPage() {
               </tr>
             </thead>
             <tbody>
-              {students.map((student) => (
+              {filteredStudents.map((student) => (
                 <tr key={student.id}>
                   <td>{student.last_name}</td>
                   <td>{student.first_name}</td>
                   <td>{student.class_level_name || student.class_level}</td>
+                  <td>{student.class_name || "-"}</td>
                   <td>{student.school_year || "-"}</td>
                   <td>{student.parent_name}</td>
                   <td>{student.parent_phone || student.phone || "-"}</td>
@@ -307,9 +398,9 @@ export default function StudentsPage() {
                   </td>
                 </tr>
               ))}
-              {students.length === 0 && (
+              {filteredStudents.length === 0 && (
                 <tr>
-                  <td colSpan="10" className="table-empty">
+                  <td colSpan="11" className="table-empty">
                     Aucun eleve trouve.
                   </td>
                 </tr>

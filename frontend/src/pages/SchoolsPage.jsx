@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { createUser } from "../services/userService";
 import {
   createSchool,
+  deleteSchool,
   getSchools,
+  importSchoolData,
+  updateSchool,
   uploadSchoolLogo,
 } from "../services/schoolService";
 
@@ -22,6 +25,23 @@ const EMPTY_SCHOOL_FORM = {
   status: "ACTIVE",
 };
 
+const TEMPLATE_HEADERS = [
+  "Nom",
+  "Prénom",
+  "Date de naissance",
+  "Sexe",
+  "Classe",
+  "Niveau scolaire",
+  "Nom du parent",
+  "Téléphone",
+  "Adresse",
+  "Montant de la mensualité",
+];
+
+const templateHref = `data:text/csv;charset=utf-8,${encodeURIComponent(`${TEMPLATE_HEADERS.join(";")}\n`)}`;
+
+const isValidImportFile = (file) => /\.(xlsx|xls|csv)$/i.test(file?.name || "");
+
 const EMPTY_USER_FORM = {
   first_name: "",
   last_name: "",
@@ -33,12 +53,19 @@ const EMPTY_USER_FORM = {
 };
 
 export default function SchoolsPage() {
+  const location = useLocation();
   const [schools, setSchools] = useState([]);
   const [schoolForm, setSchoolForm] = useState(EMPTY_SCHOOL_FORM);
   const [userForm, setUserForm] = useState(EMPTY_USER_FORM);
   const [logoFile, setLogoFile] = useState(null);
+  const [schoolDataFile, setSchoolDataFile] = useState(null);
+  const [importProgress, setImportProgress] = useState(0);
+  const [creatingSchool, setCreatingSchool] = useState(false);
+  const [isDraggingImport, setIsDraggingImport] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [deletingId, setDeletingId] = useState(null);
+  const [togglingId, setTogglingId] = useState(null);
 
   const selectedSchool = useMemo(
     () => schools.find((item) => String(item.id) === String(userForm.school_id)) || null,
@@ -59,14 +86,30 @@ export default function SchoolsPage() {
 
   useEffect(() => {
     loadSchools().catch(() => setError("Impossible de charger les ecoles."));
+    if (location.state?.message) {
+      setMessage(location.state.message);
+      window.history.replaceState({}, document.title);
+    }
   }, []);
 
   const handleCreateSchool = async (e) => {
     e.preventDefault();
     setMessage("");
     setError("");
+    setImportProgress(0);
+
+    if (!schoolDataFile) {
+      setError("Le fichier d'import des données de l'école est obligatoire.");
+      return;
+    }
+
+    if (!isValidImportFile(schoolDataFile)) {
+      setError("Format incorrect. Formats acceptés: .xlsx, .xls, .csv.");
+      return;
+    }
 
     try {
+      setCreatingSchool(true);
       let logo_path = "";
       if (logoFile) {
         const upload = await uploadSchoolLogo(logoFile);
@@ -74,14 +117,37 @@ export default function SchoolsPage() {
       }
 
       const created = await createSchool({ ...schoolForm, logo_path });
-      setMessage(`Ecole creee: ${created.name}`);
+      const imported = await importSchoolData(created.id, schoolDataFile, setImportProgress);
+      setMessage(`Ecole creee: ${created.name}. ${imported.message || "Import termine avec succes."}`);
       setSchoolForm(EMPTY_SCHOOL_FORM);
       setLogoFile(null);
+      setSchoolDataFile(null);
+      setImportProgress(100);
       await loadSchools();
       setUserForm((prev) => ({ ...prev, school_id: String(created.id) }));
     } catch (err) {
-      setError(err?.response?.data?.message || "Echec de creation de l'ecole.");
+      const details = err?.response?.data?.details || [];
+      const suffix = Array.isArray(details) && details.length ? ` ${details.join(" ")}` : "";
+      setError((err?.response?.data?.message || "Echec de creation ou d'import de l'ecole.") + suffix);
+    } finally {
+      setCreatingSchool(false);
     }
+  };
+
+  const handleSchoolDataFile = (file) => {
+    setError("");
+    if (!file) {
+      setSchoolDataFile(null);
+      return;
+    }
+
+    if (!isValidImportFile(file)) {
+      setSchoolDataFile(null);
+      setError("Format incorrect. Formats acceptés: .xlsx, .xls, .csv.");
+      return;
+    }
+
+    setSchoolDataFile(file);
   };
 
   const handleCreateUser = async (e) => {
@@ -105,6 +171,46 @@ export default function SchoolsPage() {
       setUserForm((prev) => ({ ...EMPTY_USER_FORM, school_id: prev.school_id, role: prev.role }));
     } catch (err) {
       setError(err?.response?.data?.message || "Echec de creation utilisateur.");
+    }
+  };
+
+  const handleToggleSchool = async (school) => {
+    const nextStatus = school.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+    setMessage("");
+    setError("");
+    setTogglingId(school.id);
+
+    try {
+      await updateSchool(school.id, { status: nextStatus });
+      setMessage(`Ecole « ${school.name} » ${nextStatus === "ACTIVE" ? "activee" : "desactivee"}.`);
+      await loadSchools();
+    } catch (err) {
+      setError(err?.response?.data?.message || "Echec de mise a jour du statut.");
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  const handleDeleteSchool = async (school) => {
+    const confirmed = window.confirm(
+      `Supprimer l'ecole « ${school.name} » ? Cette action est irreversible.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setMessage("");
+    setError("");
+    setDeletingId(school.id);
+
+    try {
+      await deleteSchool(school.id);
+      setMessage(`Ecole « ${school.name} » supprimee.`);
+      await loadSchools();
+    } catch (err) {
+      setError(err?.response?.data?.message || "Echec de suppression de l'ecole.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -132,7 +238,42 @@ export default function SchoolsPage() {
             <option value="INACTIVE">Inactif</option>
           </select>
           <input type="file" accept=".png,.jpg,.jpeg,.svg,.webp" onChange={(e) => setLogoFile(e.target.files?.[0] || null)} />
-          <button type="submit">Creer l'ecole</button>
+          <div
+            className={`upload-dropzone ${isDraggingImport ? "upload-dropzone-active" : ""}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDraggingImport(true);
+            }}
+            onDragLeave={() => setIsDraggingImport(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDraggingImport(false);
+              handleSchoolDataFile(e.dataTransfer.files?.[0] || null);
+            }}
+          >
+            <div>
+              <p className="kpi-label">Importer les données de l'école *</p>
+              <p className="muted">Glissez un fichier .xlsx, .xls ou .csv, ou sélectionnez-le.</p>
+              {schoolDataFile && <p className="muted">Fichier choisi: {schoolDataFile.name}</p>}
+            </div>
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={(e) => handleSchoolDataFile(e.target.files?.[0] || null)}
+              required
+            />
+          </div>
+          <a className="text-link" href={templateHref} download="modele-import-ecole.csv">
+            Télécharger le modèle CSV
+          </a>
+          {creatingSchool && (
+            <div className="progress-wrap">
+              <div className="progress-bar" style={{ width: `${importProgress || 12}%` }} />
+            </div>
+          )}
+          <button type="submit" disabled={creatingSchool}>
+            {creatingSchool ? "Creation et import..." : "Creer l'ecole et importer"}
+          </button>
         </form>
       </section>
 
@@ -191,8 +332,47 @@ export default function SchoolsPage() {
                   <td>{school.name}</td>
                   <td>{school.code}</td>
                   <td>{school.email_domain}</td>
-                  <td>{school.status === "ACTIVE" ? "Actif" : "Inactif"}</td>
-                  <td><Link to={`/super-admin/schools/${school.id}`}>Detail</Link></td>
+                  <td>{school.status === "ACTIVE" ? <span className="status-pill active">Actif</span> : <span className="status-pill inactive">Inactif</span>}</td>
+                  <td>
+                    <div className="table-actions">
+                      <Link to={`/super-admin/schools/${school.id}`} className="action-btn secondary-btn">
+                        Detail
+                      </Link>
+                      <Link
+                        to={`/super-admin/schools/${school.id}`}
+                        state={{ openEdit: true }}
+                        className="action-btn"
+                      >
+                        Modifier
+                      </Link>
+                      <button
+                        type="button"
+                        className="action-btn secondary-btn"
+                        onClick={() => handleToggleSchool(school)}
+                        disabled={togglingId === school.id}
+                      >
+                        {togglingId === school.id
+                          ? "..."
+                          : school.status === "ACTIVE"
+                            ? "Desactiver"
+                            : "Activer"}
+                      </button>
+                      <Link
+                        to={`/super-admin/schools/${school.id}/admin`}
+                        className="action-btn link-btn"
+                      >
+                        Admin
+                      </Link>
+                      <button
+                        type="button"
+                        className="action-btn danger-btn"
+                        onClick={() => handleDeleteSchool(school)}
+                        disabled={deletingId === school.id}
+                      >
+                        {deletingId === school.id ? "..." : "Supprimer"}
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
               {schools.length === 0 && (
