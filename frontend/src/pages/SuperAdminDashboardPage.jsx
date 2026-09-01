@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getSuperAdminDashboard } from "../services/schoolService";
+import { getDashboardAlerts } from "../services/alertService";
+import AlertList from "../components/dashboard/AlertList";
 
 const formatMoney = (value) =>
   new Intl.NumberFormat("fr-MA", { style: "currency", currency: "MAD" }).format(
@@ -16,9 +18,15 @@ export default function SuperAdminDashboardPage() {
     total_collected: 0,
     outstanding_balance: 0,
   });
+  const [alerts, setAlerts] = useState([]);
 
   useEffect(() => {
-    getSuperAdminDashboard().then(setStats).catch(() => null);
+    Promise.all([getSuperAdminDashboard(), getDashboardAlerts()])
+      .then(([dashboardStats, dashboardAlerts]) => {
+        setStats(dashboardStats);
+        setAlerts(dashboardAlerts);
+      })
+      .catch(() => null);
   }, []);
 
   return (
@@ -46,6 +54,8 @@ export default function SuperAdminDashboardPage() {
           </div>
         </div>
       </section>
+
+      <AlertList alerts={alerts} />
     </div>
   );
 }

@@ -25,6 +25,17 @@ class StudentController
         Response::json($result, 201);
     }
 
+    public function show(): void
+    {
+        $id = (int)Request::param('id', 0);
+        $result = (new StudentService())->getById($id);
+        if (!$result) {
+            Response::json(['message' => 'Student not found'], 404);
+        }
+
+        Response::json($result);
+    }
+
     public function update(): void
     {
         $id = (int)Request::param('id', 0);

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createClassLevel, getClassLevels } from "../services/classLevelService";
+import { createClassLevel, deleteClassLevel, getClassLevels } from "../services/classLevelService";
 
 const emptyForm = {
   name: "",
@@ -10,6 +10,7 @@ export default function ClassesPage() {
   const [form, setForm] = useState(emptyForm);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [deletingId, setDeletingId] = useState(null);
 
   const load = async () => {
     const data = await getClassLevels();
@@ -38,9 +39,30 @@ export default function ClassesPage() {
     }
   };
 
+  const handleDelete = async (item) => {
+    const confirmed = window.confirm(`Supprimer le niveau « ${item.name} » ?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setMessage("");
+    setError("");
+    setDeletingId(item.id);
+
+    try {
+      await deleteClassLevel(item.id);
+      setMessage(`Niveau « ${item.name} » supprime.`);
+      await load();
+    } catch (err) {
+      setError(err?.response?.data?.message || "Echec de suppression du niveau.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <div className="admin-grid">
-      <section className="panel">
+      <section className="panel hero-panel">
         <h2>Classes</h2>
         <p className="muted">Creer et gerer les classes avant affectation aux eleves.</p>
       </section>
@@ -49,7 +71,7 @@ export default function ClassesPage() {
         <h3>Nouvelle classe</h3>
         <form className="form-grid" onSubmit={submit}>
           <input
-            placeholder="Nom (ex: 6eme A)"
+            placeholder="Niv (ex: 6eme A)"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             required
@@ -67,10 +89,11 @@ export default function ClassesPage() {
             <thead>
               <tr>
                 <th>ID</th>
-                <th>Nom</th>
+                <th>Niv</th>
                 <th>Code</th>
                 <th>Ordre</th>
                 <th>Statut</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -80,12 +103,22 @@ export default function ClassesPage() {
                   <td>{item.name}</td>
                   <td>{item.code || "-"}</td>
                   <td>{item.sort_order}</td>
-                  <td>{item.status === "ACTIVE" ? "Actif" : "Inactif"}</td>
+                  <td>{item.status === "ACTIVE" ? <span className="status-pill active">Actif</span> : <span className="status-pill inactive">Inactif</span>}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="secondary-btn"
+                      onClick={() => handleDelete(item)}
+                      disabled={deletingId === item.id}
+                    >
+                      {deletingId === item.id ? "Suppression..." : "Supprimer"}
+                    </button>
+                  </td>
                 </tr>
               ))}
               {items.length === 0 && (
                 <tr>
-                  <td colSpan="5" className="table-empty">
+                  <td colSpan="6" className="table-empty">
                     Aucune classe trouvee.
                   </td>
                 </tr>

@@ -93,4 +93,95 @@ class ClassLevelService
             'message' => 'Class level created successfully',
         ];
     }
+
+    public function getById(int $classLevelId): array|false
+    {
+        $pdo = Database::connect();
+        $authUser = Request::get('auth_user', []);
+        $role = (string)($authUser['role'] ?? '');
+        $actorSchoolId = isset($authUser['school_id']) ? (int)$authUser['school_id'] : null;
+
+        if ($role === 'super_admin') {
+            $stmt = $pdo->prepare('SELECT * FROM class_levels WHERE id = ? LIMIT 1');
+            $stmt->execute([$classLevelId]);
+        } else {
+            $stmt = $pdo->prepare('SELECT * FROM class_levels WHERE id = ? AND school_id = ? LIMIT 1');
+            $stmt->execute([$classLevelId, $actorSchoolId]);
+        }
+
+        return $stmt->fetch() ?: false;
+    }
+
+    public function update(int $classLevelId, array $data): array
+    {
+        $pdo = Database::connect();
+        $authUser = Request::get('auth_user', []);
+        $role = (string)($authUser['role'] ?? '');
+
+        $classLevel = $this->getById($classLevelId);
+        if (!$classLevel) {
+            return ['error' => 'Class level not found'];
+        }
+
+        $name = isset($data['name']) ? trim((string)$data['name']) : (string)$classLevel['name'];
+        if ($name === '') {
+            return ['error' => 'Class level name is required'];
+        }
+
+        $status = isset($data['status']) ? strtoupper(trim((string)$data['status'])) : (string)$classLevel['status'];
+        if (!in_array($status, ['ACTIVE', 'INACTIVE'], true)) {
+            return ['error' => 'Invalid status'];
+        }
+
+        $sortOrder = isset($data['sort_order']) ? (int)$data['sort_order'] : (int)$classLevel['sort_order'];
+
+        try {
+            $stmt = $pdo->prepare('
+                UPDATE class_levels
+                SET name = ?, sort_order = ?, status = ?
+                WHERE id = ?
+            ');
+            $stmt->execute([$name, $sortOrder, $status, $classLevelId]);
+
+            return [
+                'id' => $classLevelId,
+                'school_id' => $classLevel['school_id'],
+                'name' => $name,
+                'code' => $classLevel['code'],
+                'sort_order' => $sortOrder,
+                'status' => $status,
+                'message' => 'Class level updated successfully',
+            ];
+        } catch (PDOException) {
+            return ['error' => 'Class level update failed'];
+        }
+    }
+
+    public function delete(int $classLevelId): array
+    {
+        $pdo = Database::connect();
+
+        $classLevel = $this->getById($classLevelId);
+        if (!$classLevel) {
+            return ['error' => 'Class level not found'];
+        }
+
+        // Check if class level is used by any students
+        $usageStmt = $pdo->prepare('SELECT COUNT(*) as count FROM students WHERE class_level_id = ?');
+        $usageStmt->execute([$classLevelId]);
+        $usage = $usageStmt->fetch();
+
+        if ($usage && (int)$usage['count'] > 0) {
+            return ['error' => 'Cannot delete class level because it is used by students'];
+        }
+
+        try {
+            $stmt = $pdo->prepare('DELETE FROM class_levels WHERE id = ?');
+            $stmt->execute([$classLevelId]);
+
+            return ['id' => $classLevelId, 'message' => 'Class level deleted successfully'];
+        } catch (PDOException) {
+            return ['error' => 'Class level deletion failed'];
+        }
+    }
 }

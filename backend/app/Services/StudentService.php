@@ -90,6 +90,9 @@ class StudentService
 
         $schoolYear = trim((string)($data['school_year'] ?? ''));
         $dateOfBirth = $this->normalizeDate($data['date_of_birth'] ?? null);
+        $gender = $this->nullable($data['gender'] ?? null);
+        $className = $this->nullable($data['class_name'] ?? null);
+        $address = $this->nullable($data['address'] ?? null);
         $status = strtoupper(trim((string)($data['status'] ?? 'ACTIVE')));
         if (!in_array($status, ['ACTIVE', 'INACTIVE'], true)) {
             return ['error' => 'Invalid student status'];
@@ -107,10 +110,10 @@ class StudentService
         try {
             $stmt = $pdo->prepare('
                 INSERT INTO students (
-                    school_id, parent_id, first_name, last_name, date_of_birth, class_level, class_level_id,
-                    parent_name, phone, monthly_amount, discount_percent, school_year, status
+                    school_id, parent_id, first_name, last_name, date_of_birth, gender, class_level, class_name, class_level_id,
+                    parent_name, phone, address, monthly_amount, discount_percent, school_year, status
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ');
             $stmt->execute([
                 $schoolId,
@@ -118,10 +121,13 @@ class StudentService
                 $firstName,
                 $lastName,
                 $dateOfBirth,
+                $gender,
                 $classLevel['name'],
+                $className,
                 $classLevel['id'],
                 $parentName,
                 $parentPhone,
+                $address,
                 $monthlyAmount,
                 $discountPercent,
                 $schoolYear !== '' ? $schoolYear : null,
@@ -212,6 +218,15 @@ class StudentService
         $dateOfBirth = array_key_exists('date_of_birth', $data)
             ? $this->normalizeDate($data['date_of_birth'])
             : ($student['date_of_birth'] ?: null);
+        $gender = array_key_exists('gender', $data)
+            ? $this->nullable($data['gender'])
+            : ($student['gender'] ?? null);
+        $className = array_key_exists('class_name', $data)
+            ? $this->nullable($data['class_name'])
+            : ($student['class_name'] ?? null);
+        $address = array_key_exists('address', $data)
+            ? $this->nullable($data['address'])
+            : ($student['address'] ?? null);
 
         $schoolYear = array_key_exists('school_year', $data)
             ? trim((string)$data['school_year'])
@@ -229,10 +244,13 @@ class StudentService
                 first_name = ?,
                 last_name = ?,
                 date_of_birth = ?,
+                gender = ?,
                 class_level = ?,
+                class_name = ?,
                 class_level_id = ?,
                 parent_name = ?,
                 phone = ?,
+                address = ?,
                 monthly_amount = ?,
                 discount_percent = ?,
                 school_year = ?,
@@ -244,10 +262,13 @@ class StudentService
             $firstName,
             $lastName,
             $dateOfBirth,
+            $gender,
             $classLevel['name'],
+            $className,
             $classLevel['id'],
             $parentName,
             $parentPhone,
+            $address,
             $monthlyAmount,
             $discountPercent,
             $schoolYear !== '' ? $schoolYear : null,
@@ -438,5 +459,11 @@ class StudentService
         $stmt = $pdo->prepare('SELECT * FROM students WHERE id = ? LIMIT 1');
         $stmt->execute([$studentId]);
         return $stmt->fetch();
+    }
+
+    private function nullable(mixed $value): ?string
+    {
+        $str = trim((string)$value);
+        return $str === '' ? null : $str;
     }
 }
