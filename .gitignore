@@ -45,3 +45,4 @@ temp/
 .cache/
 # Large Files & Docker
 salma-mysql-image.tar
+backend/storage/backups/
