@@ -13,14 +13,14 @@ class SchoolService
     public function listAll(): array
     {
         $pdo = Database::connect();
-        $stmt = $pdo->query('SELECT id, name, code, slug, email_domain, logo_path, phone, address, city, country, primary_color, secondary_color, currency, status, created_at FROM schools ORDER BY id DESC');
+        $stmt = $pdo->query('SELECT id, name, code, slug, email_domain, logo_path, phone, email, address, city, country, primary_color, secondary_color, currency, status, created_at FROM schools ORDER BY id DESC');
         return $stmt->fetchAll();
     }
 
     public function getById(int $schoolId): array|false
     {
         $pdo = Database::connect();
-        $stmt = $pdo->prepare('SELECT id, name, code, slug, email_domain, logo_path, phone, address, city, country, primary_color, secondary_color, currency, status, created_at FROM schools WHERE id = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT id, name, code, slug, email_domain, logo_path, phone, email, address, city, country, primary_color, secondary_color, currency, status, created_at FROM schools WHERE id = ? LIMIT 1');
         $stmt->execute([$schoolId]);
         $school = $stmt->fetch();
         return $school ? $this->withLogoDataUrl($school) : false;
@@ -107,23 +107,35 @@ class SchoolService
         if (!in_array($status, ['ACTIVE', 'INACTIVE'], true)) {
             return ['error' => 'Invalid school status'];
         }
+        $email = $this->nullable($data['email'] ?? $school['email']);
+        $phone = $this->nullable($data['phone'] ?? $school['phone']);
+        $country = $this->nullable($data['country'] ?? $school['country']) ?? 'Maroc';
+        $currency = strtoupper(trim((string)($data['currency'] ?? $school['currency'] ?? 'MAD')));
+        $primaryColor = strtoupper(trim((string)($data['primary_color'] ?? $school['primary_color'] ?? '#0F4AA3')));
+        $secondaryColor = strtoupper(trim((string)($data['secondary_color'] ?? $school['secondary_color'] ?? '#15957D')));
+        if ($email !== null && !filter_var($email, FILTER_VALIDATE_EMAIL)) return ['error' => 'Adresse e-mail invalide'];
+        if (strlen($country) > 100) return ['error' => 'Pays invalide'];
+        if ($phone !== null && strlen(preg_replace('/[^0-9+(). -]/', '', $phone)) > 30) return ['error' => 'Téléphone invalide'];
+        if (!in_array($currency, ['MAD', 'EUR', 'USD'], true)) return ['error' => 'Devise invalide'];
+        if (!preg_match('/^#[0-9A-F]{6}$/', $primaryColor) || !preg_match('/^#[0-9A-F]{6}$/', $secondaryColor)) return ['error' => 'Les couleurs doivent être au format #RRGGBB'];
 
         try {
             $pdo = Database::connect();
-            $stmt = $pdo->prepare('UPDATE schools SET name = ?, code = ?, slug = ?, email_domain = ?, logo_path = ?, phone = ?, address = ?, city = ?, country = ?, primary_color = ?, secondary_color = ?, currency = ?, status = ? WHERE id = ?');
+            $stmt = $pdo->prepare('UPDATE schools SET name = ?, code = ?, slug = ?, email_domain = ?, logo_path = ?, phone = ?, email = ?, address = ?, city = ?, country = ?, primary_color = ?, secondary_color = ?, currency = ?, status = ? WHERE id = ?');
             $stmt->execute([
                 $name,
                 $code,
                 $slug,
                 $emailDomain,
                 $data['logo_path'] ?? $school['logo_path'],
-                $this->nullable($data['phone'] ?? $school['phone']),
+                $phone,
+                $email,
                 $this->nullable($data['address'] ?? $school['address']),
                 $this->nullable($data['city'] ?? $school['city']),
-                $this->nullable($data['country'] ?? $school['country']),
-                $data['primary_color'] ?? $school['primary_color'],
-                $data['secondary_color'] ?? $school['secondary_color'],
-                strtoupper(trim((string)($data['currency'] ?? $school['currency']))),
+                $country,
+                $primaryColor,
+                $secondaryColor,
+                $currency,
                 $status,
                 $schoolId,
             ]);
