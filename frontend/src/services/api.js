@@ -8,6 +8,10 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
+  if (typeof FormData !== "undefined" && config.data instanceof FormData) {
+    // Le navigateur doit générer lui-même la frontière multipart pour alimenter $_FILES.
+    delete config.headers["Content-Type"];
+  }
   const token = localStorage.getItem("token");
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
