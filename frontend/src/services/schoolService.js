@@ -5,6 +5,9 @@ export const getCurrentSchool = async () => {
   return response.data;
 };
 export const updateCurrentSchool = async (payload) => (await api.put("/api/school/current", payload)).data;
+export const getCurrentSchoolLogo = async () => (await api.get("/api/school/current/logo")).data;
+export const uploadCurrentSchoolLogo = async (file) => { const data = new FormData(); data.append("logo", file); return (await api.post("/api/school/current/logo", data)).data; };
+export const deleteCurrentSchoolLogo = async () => (await api.delete("/api/school/current/logo")).data;
 
 export const getSchools = async () => {
   const response = await api.get("/api/schools");

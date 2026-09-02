@@ -143,6 +143,9 @@ button:disabled {
 .color-input input[type="color"] { height: 42px; padding: 3px; }
 .color-swatch { height: 34px; border-radius: 9px; border: 1px solid var(--line); }
 .settings-actions { justify-content: flex-end; flex-wrap: wrap; }
+.logo-settings { display: grid; gap: 12px; justify-items: start; }
+.settings-logo { width: 120px; height: 120px; object-fit: contain; border: 1px solid var(--line); border-radius: 14px; background: #fff; padding: 8px; }
+.logo-settings label.secondary-btn { width: auto; padding: 10px 14px; font-weight: 700; cursor: pointer; }
 
 .filters-grid {
   margin-top: 14px;
