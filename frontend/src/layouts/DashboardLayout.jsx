@@ -2,23 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import useAuth from "../hooks/useAuth";
 import { BRAND_NAME, SCHOOL_NAME } from "../config/brand";
-import { getCurrentSchool } from "../services/schoolService";
+import { getCurrentSchool, getCurrentSchoolLogo } from "../services/schoolService";
 import defaultLogo from "../assets/branding/logo-placeholder.svg";
 
-const API_URL = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8080").replace(/\/+$/, "");
-
-const resolveLogoUrl = (logoPath) => {
-  if (!logoPath) {
-    return defaultLogo;
-  }
-
-  if (/^https?:\/\//i.test(logoPath)) {
-    return logoPath;
-  }
-
-  const normalized = String(logoPath).replace(/\\/g, "/").replace(/^\/+/, "");
-  return `${API_URL}/${normalized}`;
-};
+const toBlob = (dataUrl) => fetch(dataUrl).then((response) => response.blob());
 
 const toTitleCase = (value) =>
   value
@@ -58,12 +45,10 @@ export default function DashboardLayout() {
   const [logoSrc, setLogoSrc] = useState(defaultLogo);
 
   useEffect(() => {
-    getCurrentSchool().then(setSchool).catch(() => null);
+    const load = async () => { try { const result = await getCurrentSchoolLogo(); if (!result.logo) return setLogoSrc(defaultLogo); const next = URL.createObjectURL(await toBlob(result.logo)); setLogoSrc((previous) => { if (previous.startsWith("blob:")) URL.revokeObjectURL(previous); return next; }); } catch { setLogoSrc(defaultLogo); } };
+    getCurrentSchool().then(setSchool).catch(() => null); load(); window.addEventListener("school-logo-changed", load);
+    return () => { window.removeEventListener("school-logo-changed", load); setLogoSrc((value) => { if (value.startsWith("blob:")) URL.revokeObjectURL(value); return defaultLogo; }); };
   }, []);
-
-  useEffect(() => {
-    setLogoSrc(resolveLogoUrl(school?.logo_path));
-  }, [school?.logo_path]);
 
   const schoolName = useMemo(() => school?.name || SCHOOL_NAME, [school?.name]);
   const userDisplayName = useMemo(() => resolveUserDisplayName(user), [user]);
