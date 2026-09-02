@@ -4,6 +4,7 @@ export const getCurrentSchool = async () => {
   const response = await api.get("/api/school/current");
   return response.data;
 };
+export const updateCurrentSchool = async (payload) => (await api.put("/api/school/current", payload)).data;
 
 export const getSchools = async () => {
   const response = await api.get("/api/schools");

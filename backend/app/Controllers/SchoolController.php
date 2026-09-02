@@ -21,6 +21,16 @@ class SchoolController
         Response::json((new SchoolService())->getCurrent());
     }
 
+    public function updateCurrent(): void
+    {
+        $user = Request::get('auth_user', []);
+        $schoolId = (int)($user['school_id'] ?? 0);
+        if (!$schoolId) Response::json(['message' => 'School not found'], 404);
+        $result = (new SchoolService())->update($schoolId, Request::json());
+        if (isset($result['error'])) Response::json(['message' => $result['error']], 422);
+        Response::json($result);
+    }
+
     public function show(): void
     {
         $id = (int)Request::param('id', 0);

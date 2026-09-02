@@ -17,23 +17,44 @@ use App\Controllers\StudentController;
 use App\Controllers\SuperAdminController;
 use App\Controllers\TeacherController;
 use App\Controllers\UserController;
+use App\Controllers\FamilyController;
+use App\Controllers\StudentDocumentController;
+use App\Controllers\LevelFeeController;
+use App\Controllers\AcademicYearController;
 use App\Core\Request;
 use App\Core\Router;
 use App\Middleware\AuthMiddleware;
 use App\Middleware\RoleMiddleware;
+use App\Middleware\PermissionMiddleware;
 
 Router::add('POST', '/api/login', [new AuthController(), 'login']);
 
-Router::add('GET', '/api/students', [new StudentController(), 'index'], [AuthMiddleware::class]);
-Router::add('POST', '/api/students', [new StudentController(), 'store'], [AuthMiddleware::class]);
-Router::add('POST', '/api/students/import', [new StudentController(), 'importClass'], [AuthMiddleware::class]);
-Router::add('GET', '/api/students/{id}', [new StudentController(), 'show'], [AuthMiddleware::class]);
-Router::add('PUT', '/api/students/{id}', [new StudentController(), 'update'], [AuthMiddleware::class]);
-Router::add('DELETE', '/api/students/{id}', [new StudentController(), 'delete'], [AuthMiddleware::class]);
+Router::add('GET', '/api/students', [new StudentController(), 'index'], [AuthMiddleware::class, new PermissionMiddleware('students.manage')]);
+Router::add('POST', '/api/students', [new StudentController(), 'store'], [AuthMiddleware::class, new PermissionMiddleware('students.manage')]);
+Router::add('GET', '/api/students/matricule-preview', [new StudentController(), 'matriculePreview'], [AuthMiddleware::class, new PermissionMiddleware('students.manage')]);
+Router::add('GET', '/api/students/massar-check', [new StudentController(), 'massarCheck'], [AuthMiddleware::class, new PermissionMiddleware('students.manage')]);
+Router::add('POST', '/api/students/photo', [new StudentController(), 'uploadPhoto'], [AuthMiddleware::class, new PermissionMiddleware('students.manage')]);
+Router::add('POST', '/api/students/import', [new StudentController(), 'importClass'], [AuthMiddleware::class, new PermissionMiddleware('students.import')]);
+Router::add('GET', '/api/students/{id}/profile', [new StudentController(), 'profile'], [AuthMiddleware::class, new PermissionMiddleware('students.manage')]);
+Router::add('POST', '/api/students/{id}/status', [new StudentController(), 'status'], [AuthMiddleware::class, new PermissionMiddleware('students.manage')]);
+Router::add('GET', '/api/students/{id}/status-history', [new StudentController(), 'statusHistory'], [AuthMiddleware::class, new PermissionMiddleware('students.manage')]);
+Router::add('GET', '/api/students/{id}', [new StudentController(), 'show'], [AuthMiddleware::class, new PermissionMiddleware('students.manage')]);
+Router::add('PUT', '/api/students/{id}', [new StudentController(), 'update'], [AuthMiddleware::class, new PermissionMiddleware('students.manage')]);
+Router::add('DELETE', '/api/students/{id}', [new StudentController(), 'delete'], [AuthMiddleware::class, new PermissionMiddleware('students.manage')]);
 Router::add('GET', '/api/parents/summary', [new StudentController(), 'parentSummary'], [AuthMiddleware::class]);
+Router::add('POST', '/api/documents/students/financial', [new StudentDocumentController(), 'generate'], [AuthMiddleware::class, new PermissionMiddleware('student_finance.view')]);
+Router::add('GET', '/api/families/candidates', [new FamilyController(), 'candidates'], [AuthMiddleware::class, new PermissionMiddleware('families.manage')]);
+Router::add('POST', '/api/families', [new FamilyController(), 'store'], [AuthMiddleware::class, new PermissionMiddleware('families.manage')]);
+Router::add('GET', '/api/families/{id}', [new FamilyController(), 'show'], [AuthMiddleware::class, new PermissionMiddleware('families.manage')]);
+Router::add('POST', '/api/families/{id}/students', [new FamilyController(), 'attach'], [AuthMiddleware::class, new PermissionMiddleware('families.manage')]);
+Router::add('DELETE', '/api/students/{id}/family', [new FamilyController(), 'detach'], [AuthMiddleware::class, new PermissionMiddleware('families.manage')]);
+Router::add('GET', '/api/students/{id}/guardians', [new FamilyController(), 'guardians'], [AuthMiddleware::class, new PermissionMiddleware('families.manage')]);
+Router::add('POST', '/api/students/{id}/guardians', [new FamilyController(), 'addGuardian'], [AuthMiddleware::class, new PermissionMiddleware('families.manage')]);
 Router::add('GET', '/api/class-levels', [new ClassLevelController(), 'index'], [AuthMiddleware::class]);
+Router::add('GET', '/api/academic-years', [new AcademicYearController(), 'index'], [AuthMiddleware::class]);
 Router::add('POST', '/api/class-levels', [new ClassLevelController(), 'store'], [AuthMiddleware::class]);
 Router::add('GET', '/api/class-levels/{id}', [new ClassLevelController(), 'show'], [AuthMiddleware::class]);
+Router::add('GET', '/api/class-levels/{id}/fees', [new LevelFeeController(), 'show'], [AuthMiddleware::class, new PermissionMiddleware('students.manage')]);
 Router::add('PUT', '/api/class-levels/{id}', [new ClassLevelController(), 'update'], [AuthMiddleware::class]);
 Router::add('DELETE', '/api/class-levels/{id}', [new ClassLevelController(), 'delete'], [AuthMiddleware::class]);
 
@@ -73,6 +94,7 @@ Router::add('GET', '/api/school/dashboard', [new DashboardController(), 'index']
 Router::add('GET', '/api/super-admin/dashboard', [new SuperAdminController(), 'dashboard'], [AuthMiddleware::class, new RoleMiddleware('super_admin')]);
 
 Router::add('GET', '/api/school/current', [new SchoolController(), 'current'], [AuthMiddleware::class]);
+Router::add('PUT', '/api/school/current', [new SchoolController(), 'updateCurrent'], [AuthMiddleware::class, new RoleMiddleware(['admin', 'super_admin'])]);
 
 // School routes - specific routes before generic {id} routes
 Router::add('GET', '/api/schools', [new SchoolController(), 'index'], [AuthMiddleware::class, new RoleMiddleware('super_admin')]);

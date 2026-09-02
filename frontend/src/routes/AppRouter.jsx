@@ -9,6 +9,7 @@ import NotFoundPage from "../pages/NotFoundPage";
 import PaymentsPage from "../pages/PaymentsPage";
 import AdminPage from "../pages/AdminPage";
 import StudentFormPage from "../pages/StudentFormPage";
+import StudentProfilePage from "../pages/StudentProfilePage";
 import StudentsPage from "../pages/StudentsPage";
 import ClassesPage from "../pages/ClassesPage";
 import UnpaidPage from "../pages/UnpaidPage";
@@ -17,6 +18,7 @@ import SchoolsPage from "../pages/SchoolsPage";
 import SchoolDetailsPage from "../pages/SchoolDetailsPage";
 import SchoolAdminCreatePage from "../pages/SchoolAdminCreatePage";
 import SchedulesPage from "../pages/SchedulesPage";
+import SchoolSettingsPage from "../pages/SchoolSettingsPage";
 
 export default function AppRouter() {
   return (
@@ -35,7 +37,9 @@ export default function AppRouter() {
           <Route path="/students" element={<StudentsPage />} />
           <Route path="/classes" element={<ClassesPage />} />
           <Route path="/schedules" element={<SchedulesPage />} />
+          <Route path="/school-settings" element={<SchoolSettingsPage />} />
           <Route path="/students/new" element={<StudentFormPage />} />
+          <Route path="/students/:id" element={<StudentProfilePage />} />
           <Route path="/payments" element={<PaymentsPage />} />
           <Route path="/monthly-fees" element={<MonthlyFeesPage />} />
           <Route path="/unpaid" element={<UnpaidPage />} />

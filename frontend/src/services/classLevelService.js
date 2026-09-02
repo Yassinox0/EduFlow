@@ -11,6 +11,8 @@ export const getClassLevelById = async (id) => {
   return response.data;
 };
 
+export const getClassLevelFees = async (id) => (await api.get(`/api/class-levels/${id}/fees`)).data;
+
 export const createClassLevel = async (payload) => {
   const response = await api.post("/api/class-levels", payload);
   return response.data;

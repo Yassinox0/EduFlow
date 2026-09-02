@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { DEFAULT_LEVEL_OPTIONS } from "../config/schoolOptions";
 import { getClassLevels } from "../services/classLevelService";
 import { createStudent, deleteStudent, getStudents, updateStudent } from "../services/studentService";
@@ -39,6 +40,7 @@ export default function StudentsPage() {
   const [searchApplied, setSearchApplied] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [selectedIds, setSelectedIds] = useState([]);
 
   const loadClassLevels = async () => {
     const levelsData = await getClassLevels();
@@ -71,6 +73,8 @@ export default function StudentsPage() {
   );
 
   const filteredStudents = students;
+  const selectedStudents = filteredStudents.filter((student) => selectedIds.includes(student.id));
+  const selectedFinancials = useMemo(() => selectedStudents.reduce((total, student) => ({ monthly: total.monthly + Number(student.monthly_amount || 0), paid: total.paid + Number(student.financial_paid || 0), remaining: total.remaining + Number(student.financial_remaining || 0) }), { monthly: 0, paid: 0, remaining: 0 }), [selectedStudents]);
 
   const effectiveAmountPreview = useMemo(() => {
     const amount = Number(form.monthly_amount || 0);
@@ -222,11 +226,14 @@ export default function StudentsPage() {
 
   return (
     <div className="admin-grid">
-      <section className="panel">
-        <h2>Eleves</h2>
-        <p className="muted">
-          Creation et suivi des eleves avec mensualite, reduction et classe.
-        </p>
+      <section className="panel students-page-header">
+        <div>
+          <h2>Eleves</h2>
+          <p className="muted">
+            Création et suivi des élèves, niveaux et mensualités.
+          </p>
+        </div>
+        <Link className="primary-link-btn" to="/students/new">+ Nouvel élève</Link>
       </section>
 
       <section className="kpi-grid two-col">
@@ -242,7 +249,7 @@ export default function StudentsPage() {
         </article>
       </section>
 
-      <section className="panel">
+      {editingId && <section className="panel">
         <h3>{editingId ? "Modifier un eleve" : "Creer un eleve"}</h3>
         <form className="form-grid" onSubmit={handleSubmit}>
           <input
@@ -349,7 +356,7 @@ export default function StudentsPage() {
         </form>
         {message && <p className="muted">{message}</p>}
         {error && <p className="error-text">{error}</p>}
-      </section>
+      </section>}
 
       <section className="panel">
         <h3>Liste des eleves</h3>
@@ -390,9 +397,11 @@ export default function StudentsPage() {
           </button>
         </form>
         <div className="table-wrap">
+          {selectedStudents.length > 0 && <div className="selection-bar"><strong>{selectedStudents.length} élève(s) sélectionné(s)</strong><span>Mensualités : {formatMoney(selectedFinancials.monthly)}</span><span>Payé : {formatMoney(selectedFinancials.paid)}</span><span>Reste : {formatMoney(selectedFinancials.remaining)}</span><button type="button" className="secondary-btn" onClick={() => setSelectedIds([])}>Désélectionner</button></div>}
           <table>
             <thead>
               <tr>
+                <th><input type="checkbox" aria-label="Sélectionner tous les résultats" checked={filteredStudents.length > 0 && selectedIds.length === filteredStudents.length} onChange={(e) => setSelectedIds(e.target.checked ? filteredStudents.map((s) => s.id) : [])} /></th>
                 <th>Nom</th>
                 <th>Prenom</th>
                 <th>Niveau</th>
@@ -409,6 +418,7 @@ export default function StudentsPage() {
             <tbody>
               {filteredStudents.map((student) => (
                 <tr key={student.id}>
+                  <td><input type="checkbox" aria-label={`Sélectionner ${student.first_name} ${student.last_name}`} checked={selectedIds.includes(student.id)} onChange={(e) => setSelectedIds((ids) => e.target.checked ? [...new Set([...ids, student.id])] : ids.filter((id) => id !== student.id))} /></td>
                   <td>{student.last_name}</td>
                   <td>{student.first_name}</td>
                   <td>{student.class_level_name || student.class_level}</td>
@@ -421,13 +431,8 @@ export default function StudentsPage() {
                   <td>{student.status === "INACTIVE" ? "Inactif" : "Actif"}</td>
                   <td>
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      <button
-                        type="button"
-                        style={{ width: "auto", padding: "6px 10px" }}
-                        onClick={() => handleEdit(student)}
-                      >
-                        Modifier
-                      </button>
+                      <Link to={`/students/${student.id}`}>Voir la fiche</Link>
+                      <button type="button" style={{ width: "auto", padding: "6px 10px" }} onClick={() => handleEdit(student)}>Modifier</button>
                       <button
                         type="button"
                         style={{ width: "auto", padding: "6px 10px" }}
@@ -441,7 +446,7 @@ export default function StudentsPage() {
               ))}
               {filteredStudents.length === 0 && (
                 <tr>
-                  <td colSpan="11" className="table-empty">
+                  <td colSpan="12" className="table-empty">
                     {searchApplied ? "Aucun eleve trouve." : "Lancez une recherche ou appliquez un filtre."}
                   </td>
                 </tr>

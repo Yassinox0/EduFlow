@@ -9,12 +9,9 @@ import { getSchools } from "../services/schoolService";
 import { getStudents, importStudents } from "../services/studentService";
 import { getSubjects, updateSubjectWeeklyHours } from "../services/subjectService";
 import useAuth from "../hooks/useAuth";
+import { getAcademicYears } from "../services/academicYearService";
 
-const defaultSchoolYear = "2026/2027";
-const schoolYearOptions = Array.from({ length: 8 }, (_, index) => {
-  const start = 2024 + index;
-  return `${start}/${start + 1}`;
-});
+const defaultSchoolYear = "";
 
 const emptyForm = {
   school_id: "",
@@ -47,6 +44,7 @@ export default function ClassesPage() {
   const isSuperAdmin = user?.role === "super_admin";
   const [items, setItems] = useState([]);
   const [schools, setSchools] = useState([]);
+  const [academicYears, setAcademicYears] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [importForm, setImportForm] = useState(emptyImportForm);
   const [importFile, setImportFile] = useState(null);
@@ -64,15 +62,17 @@ export default function ClassesPage() {
   const [error, setError] = useState("");
 
   const load = async () => {
-    const [levelsData, schoolsData] = await Promise.all([
+    const [levelsData, schoolsData, academicYearsData] = await Promise.all([
       getClassLevels(),
       isSuperAdmin ? getSchools() : Promise.resolve([]),
+      getAcademicYears(),
     ]);
     const safeLevels = Array.isArray(levelsData) ? levelsData : [];
     const safeSchools = Array.isArray(schoolsData) ? schoolsData : [];
 
     setItems(safeLevels);
     setSchools(safeSchools);
+    setAcademicYears(Array.isArray(academicYearsData) ? academicYearsData : []);
 
     if (isSuperAdmin && safeSchools.length) {
       setImportForm((prev) => ({
@@ -335,9 +335,10 @@ export default function ClassesPage() {
             onChange={(e) => setForm({ ...form, school_year: e.target.value })}
             required
           >
-            {schoolYearOptions.map((year) => (
-              <option key={year} value={year}>
-                {year}
+            <option value="">Choisir une année scolaire</option>
+            {academicYears.map((year) => (
+              <option key={year.id} value={year.label}>
+                {year.label}
               </option>
             ))}
           </select>

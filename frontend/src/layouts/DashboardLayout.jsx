@@ -103,6 +103,7 @@ export default function DashboardLayout() {
               <>
                 <li><NavLink to="/dashboard">Tableau de bord</NavLink></li>
                 <li><NavLink to="/students">Eleves</NavLink></li>
+                {user?.role === "admin" && <li><NavLink to="/school-settings">Paramètres école</NavLink></li>}
                 <li><NavLink to="/classes">Classes</NavLink></li>
                 <li><NavLink to="/schedules">Emploi du temps</NavLink></li>
                 <li><NavLink to="/payments">Paiements</NavLink></li>
