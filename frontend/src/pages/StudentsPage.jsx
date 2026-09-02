@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { DEFAULT_LEVEL_OPTIONS } from "../config/schoolOptions";
 import { getClassLevels } from "../services/classLevelService";
 import { createStudent, deleteStudent, getStudents, updateStudent } from "../services/studentService";
@@ -26,6 +26,7 @@ const emptyForm = {
 };
 
 export default function StudentsPage() {
+  const navigate = useNavigate();
   const [students, setStudents] = useState([]);
   const [classLevels, setClassLevels] = useState([]);
   const [form, setForm] = useState(emptyForm);
@@ -132,32 +133,7 @@ export default function StudentsPage() {
     }
   };
 
-  const handleEdit = (student) => {
-    setError("");
-    setMessage("");
-
-    const matchedLevel =
-      classLevels.find((item) => Number(item.id) === Number(student.class_level_id)) ||
-      classLevels.find((item) => item.name === (student.class_level_name || student.class_level)) ||
-      null;
-
-    setEditingId(student.id);
-    setForm({
-      first_name: student.first_name || "",
-      last_name: student.last_name || "",
-      date_of_birth: student.date_of_birth || "",
-      gender: student.gender || "",
-      class_name: student.class_name || "",
-      parent_name: student.parent_name || "",
-      parent_phone: student.parent_phone || student.phone || "",
-      address: student.address || "",
-      monthly_amount: student.monthly_amount != null ? String(student.monthly_amount) : "",
-      discount_percent: student.discount_percent != null ? String(student.discount_percent) : "0",
-      school_year: student.school_year || "",
-      class_level_id: matchedLevel ? String(matchedLevel.id) : "",
-      status: student.status || "ACTIVE",
-    });
-  };
+  const handleEdit = (student) => navigate(`/students/${student.id}/edit`);
 
   const handleDelete = async (student) => {
     const confirmed = window.confirm(`Supprimer l'eleve ${student.first_name} ${student.last_name} ?`);

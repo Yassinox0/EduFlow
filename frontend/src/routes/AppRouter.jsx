@@ -39,6 +39,7 @@ export default function AppRouter() {
           <Route path="/schedules" element={<SchedulesPage />} />
           <Route path="/school-settings" element={<SchoolSettingsPage />} />
           <Route path="/students/new" element={<StudentFormPage />} />
+          <Route path="/students/:id/edit" element={<StudentFormPage />} />
           <Route path="/students/:id" element={<StudentProfilePage />} />
           <Route path="/payments" element={<PaymentsPage />} />
           <Route path="/monthly-fees" element={<MonthlyFeesPage />} />

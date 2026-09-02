@@ -126,6 +126,15 @@ button:disabled {
 .profile-grid dl, .profile-list { display: grid; grid-template-columns: max-content minmax(180px, 1fr); gap: 10px 18px; margin: 0; }
 .profile-grid dt, .profile-list dt { color: var(--muted); font-weight: 700; }
 .profile-grid dd, .profile-list dd { margin: 0; }
+.student-form { display: grid; gap: 16px; }
+.radio-row { display: flex; gap: 16px; padding: 8px 0; }
+.radio-row label { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.radio-row input { width: auto; }
+.preview-overlay { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: rgba(16, 32, 58, .48); }
+.preview-card { width: min(720px, 100%); max-height: calc(100vh - 40px); overflow: auto; }
+.preview-list { display: grid; grid-template-columns: minmax(160px, .8fr) 1.6fr; gap: 10px 18px; margin: 16px 0; }
+.preview-list dt { color: var(--muted); font-weight: 700; }
+.preview-list dd { margin: 0; }
 
 .filters-grid {
   margin-top: 14px;
