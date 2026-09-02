@@ -95,6 +95,9 @@ Router::add('GET', '/api/super-admin/dashboard', [new SuperAdminController(), 'd
 
 Router::add('GET', '/api/school/current', [new SchoolController(), 'current'], [AuthMiddleware::class]);
 Router::add('PUT', '/api/school/current', [new SchoolController(), 'updateCurrent'], [AuthMiddleware::class, new RoleMiddleware(['admin', 'super_admin'])]);
+Router::add('GET', '/api/school/current/logo', [new SchoolController(), 'currentLogo'], [AuthMiddleware::class]);
+Router::add('POST', '/api/school/current/logo', [new SchoolController(), 'uploadLogo'], [AuthMiddleware::class, new RoleMiddleware(['admin', 'super_admin'])]);
+Router::add('DELETE', '/api/school/current/logo', [new SchoolController(), 'deleteCurrentLogo'], [AuthMiddleware::class, new RoleMiddleware(['admin', 'super_admin'])]);
 
 // School routes - specific routes before generic {id} routes
 Router::add('GET', '/api/schools', [new SchoolController(), 'index'], [AuthMiddleware::class, new RoleMiddleware('super_admin')]);

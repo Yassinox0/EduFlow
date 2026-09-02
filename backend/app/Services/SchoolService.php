@@ -303,6 +303,28 @@ class SchoolService
         return $str === '' ? null : $str;
     }
 
+    public function uploadCurrentLogo(array $file): array
+    {
+        $schoolId = (int)(Request::get('auth_user', [])['school_id'] ?? 0);
+        if (!$schoolId) return ['error' => 'Établissement introuvable'];
+        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string)($file['tmp_name'] ?? ''))) return ['error' => 'Fichier logo invalide'];
+        if ((int)($file['size'] ?? 0) > 2 * 1024 * 1024) return ['error' => 'Le logo ne doit pas dépasser 2 Mo'];
+        $tmp = (string)$file['tmp_name']; $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($tmp);
+        $types = ['image/png'=>'png','image/jpeg'=>'jpg','image/webp'=>'webp'];
+        if (!isset($types[$mime]) || @getimagesize($tmp) === false) return ['error' => 'Format de logo non autorisé'];
+        $dir = __DIR__ . '/../../storage/uploads/schools/' . $schoolId;
+        if (!is_dir($dir) && !mkdir($dir, 0750, true)) return ['error' => 'Stockage du logo impossible'];
+        $name = bin2hex(random_bytes(16)) . '.' . $types[$mime]; $path = $dir . '/' . $name; $relative = 'storage/uploads/schools/' . $schoolId . '/' . $name;
+        if (!move_uploaded_file($tmp, $path)) return ['error' => 'Enregistrement du logo impossible'];
+        $school = $this->getById($schoolId); $old = (string)($school['logo_path'] ?? '');
+        try { $stmt=Database::connect()->prepare('UPDATE schools SET logo_path=? WHERE id=?'); $stmt->execute([$relative,$schoolId]); } catch (PDOException) { @unlink($path); return ['error'=>'Mise à jour du logo impossible']; }
+        $this->deleteLogoFile($old, $schoolId); return ['logo_path'=>$relative,'mime'=>$mime];
+    }
+    public function getCurrentLogo(): array { $id=(int)(Request::get('auth_user',[])['school_id']??0);$s=$id?$this->getById($id):false;if(!$s||empty($s['logo_path']))return ['logo'=>null];$file=$this->logoFile((string)$s['logo_path'],$id);if(!$file)return ['logo'=>null];$mime=mime_content_type($file)?:'image/png';return ['logo'=>'data:'.$mime.';base64,'.base64_encode((string)file_get_contents($file)),'mime'=>$mime]; }
+    public function deleteCurrentLogo(): array { $id=(int)(Request::get('auth_user',[])['school_id']??0);$s=$id?$this->getById($id):false;if(!$s)return ['error'=>'Établissement introuvable'];$old=(string)($s['logo_path']??'');Database::connect()->prepare('UPDATE schools SET logo_path=NULL WHERE id=?')->execute([$id]);$this->deleteLogoFile($old,$id);return ['message'=>'Logo supprimé']; }
+    private function logoFile(string $relative,int $schoolId):?string { $prefix='storage/uploads/schools/'.$schoolId.'/';if(!str_starts_with($relative,$prefix))return null;$file=realpath(__DIR__.'/../../'.$relative);$dir=realpath(__DIR__.'/../../storage/uploads/schools/'.$schoolId);return $file&&$dir&&str_starts_with($file,$dir.'/')&&is_file($file)?$file:null; }
+    private function deleteLogoFile(string $relative,int $schoolId):void { $file=$this->logoFile($relative,$schoolId);if($file)@unlink($file); }
+
     public function delete(int $schoolId): array
     {
         $school = $this->getById($schoolId);

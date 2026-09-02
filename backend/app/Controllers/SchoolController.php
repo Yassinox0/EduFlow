@@ -112,6 +112,7 @@ class SchoolController
 
     public function uploadLogo(): void
     {
+        $result=(new SchoolService())->uploadCurrentLogo($_FILES['logo']??[]);if(isset($result['error']))Response::json(['message'=>$result['error']],422);Response::json($result,201);return;
         if (!isset($_FILES['logo'])) {
             Response::json(['message' => 'Logo file is required'], 422);
         }
@@ -142,4 +143,7 @@ class SchoolController
             'public_url' => 'http://127.0.0.1:8080/' . $relativePath,
         ], 201);
     }
+
+    public function currentLogo(): void { Response::json((new SchoolService())->getCurrentLogo()); }
+    public function deleteCurrentLogo(): void { $result=(new SchoolService())->deleteCurrentLogo();if(isset($result['error']))Response::json(['message'=>$result['error']],404);Response::json($result); }
 }
