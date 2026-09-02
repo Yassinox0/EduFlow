@@ -135,6 +135,14 @@ button:disabled {
 .preview-list { display: grid; grid-template-columns: minmax(160px, .8fr) 1.6fr; gap: 10px 18px; margin: 16px 0; }
 .preview-list dt { color: var(--muted); font-weight: 700; }
 .preview-list dd { margin: 0; }
+.settings-page { max-width: 960px; }
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin-top: 14px; }
+.settings-field { display: grid; gap: 6px; color: #35507c; font-size: 13px; font-weight: 700; }
+.settings-field .error-text { margin: 0; }
+.color-input { display: grid; grid-template-columns: 46px 1fr 34px; gap: 8px; align-items: center; }
+.color-input input[type="color"] { height: 42px; padding: 3px; }
+.color-swatch { height: 34px; border-radius: 9px; border: 1px solid var(--line); }
+.settings-actions { justify-content: flex-end; flex-wrap: wrap; }
 
 .filters-grid {
   margin-top: 14px;
