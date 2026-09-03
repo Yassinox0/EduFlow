@@ -237,6 +237,30 @@ class SchoolService
         ]);
     }
 
+    public function getActiveAcademicYear(): array
+    {
+        $schoolId = (int)(Request::get('auth_user', [])['school_id'] ?? 0);
+        if (!$schoolId) return ['active_academic_year_id' => null, 'active_academic_year' => null];
+        $pdo = Database::connect();
+        $setting = $pdo->prepare('SELECT setting_value FROM school_settings WHERE school_id = ? AND setting_key = "active_academic_year_id"');
+        $setting->execute([$schoolId]); $id = (int)($setting->fetchColumn() ?: 0);
+        $year = null;
+        if ($id) { $stmt = $pdo->prepare('SELECT id,label,starts_on,ends_on,status FROM academic_years WHERE id = ? AND school_id = ?'); $stmt->execute([$id, $schoolId]); $year = $stmt->fetch() ?: null; }
+        return ['active_academic_year_id' => $year ? (int)$year['id'] : null, 'active_academic_year' => $year];
+    }
+
+    public function updateActiveAcademicYear(int $yearId): array
+    {
+        $schoolId = (int)(Request::get('auth_user', [])['school_id'] ?? 0);
+        if (!$schoolId || $yearId <= 0) return ['error' => 'Année scolaire invalide'];
+        $pdo = Database::connect(); $year = $pdo->prepare('SELECT id,label FROM academic_years WHERE id = ? AND school_id = ?'); $year->execute([$yearId, $schoolId]);
+        if (!$year->fetch()) return ['error' => 'Cette année scolaire n’appartient pas à votre établissement'];
+        $user = Request::get('auth_user', []);
+        $stmt = $pdo->prepare('INSERT INTO school_settings (school_id,setting_key,setting_value,updated_by) VALUES (?,"active_academic_year_id",?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),updated_by=VALUES(updated_by)');
+        $stmt->execute([$schoolId, (string)$yearId, (int)($user['id'] ?? 0) ?: null]);
+        return $this->getActiveAcademicYear() + ['message' => 'Année scolaire active mise à jour'];
+    }
+
     private function withLogoDataUrl(array $school): array
     {
         $school['logo_data_url'] = null;

@@ -95,6 +95,8 @@ Router::add('GET', '/api/super-admin/dashboard', [new SuperAdminController(), 'd
 
 Router::add('GET', '/api/school/current', [new SchoolController(), 'current'], [AuthMiddleware::class]);
 Router::add('PUT', '/api/school/current', [new SchoolController(), 'updateCurrent'], [AuthMiddleware::class, new RoleMiddleware(['admin', 'super_admin'])]);
+Router::add('GET', '/api/school/current/active-academic-year', [new SchoolController(), 'activeAcademicYear'], [AuthMiddleware::class]);
+Router::add('PUT', '/api/school/current/active-academic-year', [new SchoolController(), 'updateActiveAcademicYear'], [AuthMiddleware::class, new RoleMiddleware(['admin', 'super_admin'])]);
 Router::add('GET', '/api/school/current/logo', [new SchoolController(), 'currentLogo'], [AuthMiddleware::class]);
 Router::add('POST', '/api/school/current/logo', [new SchoolController(), 'uploadLogo'], [AuthMiddleware::class, new RoleMiddleware(['admin', 'super_admin'])]);
 Router::add('DELETE', '/api/school/current/logo', [new SchoolController(), 'deleteCurrentLogo'], [AuthMiddleware::class, new RoleMiddleware(['admin', 'super_admin'])]);

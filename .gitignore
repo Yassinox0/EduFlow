@@ -31,6 +31,8 @@ backend/storage/logs/*
 !backend/storage/logs/.gitkeep
 backend/storage/receipts/*
 !backend/storage/receipts/.gitkeep
+backend/storage/uploads/*
+!backend/storage/uploads/.gitkeep
 
 # Node / Frontend
 frontend/node_modules/

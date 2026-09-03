@@ -30,6 +30,8 @@ class SchoolController
         if (isset($result['error'])) Response::json(['message' => $result['error']], 422);
         Response::json($result);
     }
+    public function activeAcademicYear(): void { Response::json((new SchoolService())->getActiveAcademicYear()); }
+    public function updateActiveAcademicYear(): void { $r=(new SchoolService())->updateActiveAcademicYear((int)(Request::json()['academic_year_id']??0));if(isset($r['error']))Response::json(['message'=>$r['error']],422);Response::json($r); }
 
     public function show(): void
     {
