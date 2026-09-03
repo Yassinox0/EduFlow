@@ -617,6 +617,48 @@ button:disabled {
   overflow: auto;
 }
 
+.personnel-page label,
+.personnel-grid > label {
+  display: grid;
+  gap: 6px;
+  color: #35507c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.personnel-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 14px;
+}
+
+.personnel-grid .wide,
+.personnel-grid fieldset {
+  grid-column: 1 / -1;
+}
+
+.personnel-grid fieldset {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.personnel-grid legend { color: #35507c; font-weight: 800; padding: 0 4px; }
+.check-list { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+.check-list label { display: flex; align-items: center; gap: 6px; color: var(--text); font-size: 14px; font-weight: 500; }
+.check-list input { width: auto; }
+.personnel-number { width: auto; padding: 10px 12px; border-radius: 10px; background: #edf5ff; color: #27467a; }
+.personnel-form details summary { cursor: pointer; font-weight: 800; color: #27467a; }
+.personnel-form details[open] summary { margin-bottom: 14px; }
+.personnel-actions { justify-content: flex-end; }
+.status-badge { display: inline-block; padding: 5px 9px; border-radius: 999px; font-size: 12px; font-weight: 800; background: #edf5ff; color: #27467a; }
+.status-en_conge { background: #fff7dd; color: #8a5b00; }
+.status-archive { background: #f1f3f6; color: #516074; }
+.empty-cell { padding: 24px; color: var(--muted); text-align: center; }
+
 .selection-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 12px; padding: 12px; border: 1px solid #d4e2f8; border-radius: 12px; background: #edf5ff; color: #27467a; }
 
 table {

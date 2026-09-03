@@ -19,6 +19,8 @@ import SchoolDetailsPage from "../pages/SchoolDetailsPage";
 import SchoolAdminCreatePage from "../pages/SchoolAdminCreatePage";
 import SchedulesPage from "../pages/SchedulesPage";
 import SchoolSettingsPage from "../pages/SchoolSettingsPage";
+import PersonnelPage from "../pages/PersonnelPage";
+import PersonnelFormPage from "../pages/PersonnelFormPage";
 
 export default function AppRouter() {
   return (
@@ -38,6 +40,9 @@ export default function AppRouter() {
           <Route path="/classes" element={<ClassesPage />} />
           <Route path="/schedules" element={<SchedulesPage />} />
           <Route path="/school-settings" element={<SchoolSettingsPage />} />
+          <Route path="/personnel" element={<PersonnelPage />} />
+          <Route path="/personnel/new" element={<PersonnelFormPage />} />
+          <Route path="/personnel/:id/edit" element={<PersonnelFormPage />} />
           <Route path="/students/new" element={<StudentFormPage />} />
           <Route path="/students/:id/edit" element={<StudentFormPage />} />
           <Route path="/students/:id" element={<StudentProfilePage />} />
