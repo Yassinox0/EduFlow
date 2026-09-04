@@ -39,7 +39,7 @@ export default function AppRouter() {
           <Route path="/students" element={<StudentsPage />} />
           <Route path="/classes" element={<ClassesPage />} />
           <Route path="/schedules" element={<SchedulesPage />} />
-          <Route path="/school-settings" element={<SchoolSettingsPage />} />
+          <Route path="/school-settings" element={<RoleRoute roles={["admin"]}><SchoolSettingsPage /></RoleRoute>} />
           <Route path="/personnel" element={<PersonnelPage />} />
           <Route path="/personnel/new" element={<PersonnelFormPage />} />
           <Route path="/personnel/:id/edit" element={<PersonnelFormPage />} />

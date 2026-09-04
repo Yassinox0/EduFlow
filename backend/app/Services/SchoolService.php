@@ -13,14 +13,14 @@ class SchoolService
     public function listAll(): array
     {
         $pdo = Database::connect();
-        $stmt = $pdo->query('SELECT id, name, code, slug, email_domain, logo_path, phone, email, address, city, country, primary_color, secondary_color, currency, status, created_at FROM schools ORDER BY id DESC');
+        $stmt = $pdo->query('SELECT id, name, code, slug, email_domain, logo_path, phone, phone_secondary, email, website, administrative_info, address, city, country, primary_color, secondary_color, currency, status, created_at FROM schools ORDER BY id DESC');
         return $stmt->fetchAll();
     }
 
     public function getById(int $schoolId): array|false
     {
         $pdo = Database::connect();
-        $stmt = $pdo->prepare('SELECT id, name, code, slug, email_domain, logo_path, phone, email, address, city, country, primary_color, secondary_color, currency, status, created_at FROM schools WHERE id = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT id, name, code, slug, email_domain, logo_path, phone, phone_secondary, email, website, administrative_info, address, city, country, primary_color, secondary_color, currency, status, created_at FROM schools WHERE id = ? LIMIT 1');
         $stmt->execute([$schoolId]);
         $school = $stmt->fetch();
         return $school ? $this->withLogoDataUrl($school) : false;
@@ -108,20 +108,25 @@ class SchoolService
             return ['error' => 'Invalid school status'];
         }
         $email = $this->nullable($data['email'] ?? $school['email']);
-        $phone = $this->nullable($data['phone'] ?? $school['phone']);
+        $phone = $this->cleanPhone($data['phone'] ?? $school['phone']);
+        $phoneSecondary = $this->cleanPhone($data['phone_secondary'] ?? $school['phone_secondary'] ?? null);
+        $website = $this->nullable($data['website'] ?? $school['website'] ?? null);
+        $administrativeInfo = $this->nullable($data['administrative_info'] ?? $school['administrative_info'] ?? null);
         $country = $this->nullable($data['country'] ?? $school['country']) ?? 'Maroc';
         $currency = strtoupper(trim((string)($data['currency'] ?? $school['currency'] ?? 'MAD')));
         $primaryColor = strtoupper(trim((string)($data['primary_color'] ?? $school['primary_color'] ?? '#0F4AA3')));
         $secondaryColor = strtoupper(trim((string)($data['secondary_color'] ?? $school['secondary_color'] ?? '#15957D')));
         if ($email !== null && !filter_var($email, FILTER_VALIDATE_EMAIL)) return ['error' => 'Adresse e-mail invalide'];
         if (strlen($country) > 100) return ['error' => 'Pays invalide'];
-        if ($phone !== null && strlen(preg_replace('/[^0-9+(). -]/', '', $phone)) > 30) return ['error' => 'Téléphone invalide'];
+        if (($phone !== null && !preg_match('/^[0-9+(). -]{3,30}$/', $phone)) || ($phoneSecondary !== null && !preg_match('/^[0-9+(). -]{3,30}$/', $phoneSecondary))) return ['error' => 'Téléphone invalide'];
+        if ($website !== null && !filter_var($website, FILTER_VALIDATE_URL)) return ['error' => 'Site web invalide'];
+        if ($administrativeInfo !== null && strlen($administrativeInfo) > 500) return ['error' => 'Information administrative invalide'];
         if (!in_array($currency, ['MAD', 'EUR', 'USD'], true)) return ['error' => 'Devise invalide'];
         if (!preg_match('/^#[0-9A-F]{6}$/', $primaryColor) || !preg_match('/^#[0-9A-F]{6}$/', $secondaryColor)) return ['error' => 'Les couleurs doivent être au format #RRGGBB'];
 
         try {
             $pdo = Database::connect();
-            $stmt = $pdo->prepare('UPDATE schools SET name = ?, code = ?, slug = ?, email_domain = ?, logo_path = ?, phone = ?, email = ?, address = ?, city = ?, country = ?, primary_color = ?, secondary_color = ?, currency = ?, status = ? WHERE id = ?');
+            $stmt = $pdo->prepare('UPDATE schools SET name = ?, code = ?, slug = ?, email_domain = ?, logo_path = ?, phone = ?, phone_secondary = ?, email = ?, website = ?, administrative_info = ?, address = ?, city = ?, country = ?, primary_color = ?, secondary_color = ?, currency = ?, status = ? WHERE id = ?');
             $stmt->execute([
                 $name,
                 $code,
@@ -129,7 +134,10 @@ class SchoolService
                 $emailDomain,
                 $data['logo_path'] ?? $school['logo_path'],
                 $phone,
+                $phoneSecondary,
                 $email,
+                $website,
+                $administrativeInfo,
                 $this->nullable($data['address'] ?? $school['address']),
                 $this->nullable($data['city'] ?? $school['city']),
                 $country,
@@ -325,6 +333,12 @@ class SchoolService
     {
         $str = trim((string)$value);
         return $str === '' ? null : $str;
+    }
+
+    private function cleanPhone(mixed $value): ?string
+    {
+        $value = $this->nullable($value);
+        return $value === null ? null : trim((string) preg_replace('/\s+/', ' ', $value));
     }
 
     public function uploadCurrentLogo(array $file): array

@@ -146,6 +146,12 @@ button:disabled {
 .logo-settings { display: grid; gap: 12px; justify-items: start; }
 .settings-logo { width: 120px; height: 120px; object-fit: contain; border: 1px solid var(--line); border-radius: 14px; background: #fff; padding: 8px; }
 .logo-settings label.secondary-btn { width: auto; padding: 10px 14px; font-weight: 700; cursor: pointer; }
+.school-header-preview { --header-color: var(--primary); }
+.settings-edit-btn { width: auto; padding: 10px 14px; white-space: nowrap; }
+.official-header { display: grid; grid-template-columns: 86px 1fr; gap: 14px; align-items: center; padding: 14px 0 4px; border-bottom: 3px solid var(--header-color); }
+.official-header img { width: 72px; height: 72px; object-fit: contain; border: 1px solid var(--line); border-radius: 12px; background: #fff; padding: 6px; }
+.official-header h3 { color: var(--header-color); font-size: 19px; }
+.official-header p { margin-top: 5px; color: var(--muted); font-size: 13px; line-height: 1.45; }
 
 .filters-grid {
   margin-top: 14px;

@@ -9,7 +9,7 @@ export default function RoleRoute({ roles, children }) {
   }
 
   if (!roles.includes(user.role)) {
-    return <Navigate to="/dashboard" replace />;
+    return <section className="panel"><h2>403 — Accès non autorisé</h2><p className="muted">Vous n’avez pas les droits nécessaires pour accéder à cette page.</p></section>;
   }
 
   return children;

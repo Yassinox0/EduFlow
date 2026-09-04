@@ -44,7 +44,7 @@ class ReceiptService
         }
 
         $data = $this->formatPaymentData($payment);
-        $html = $this->buildHtml($data);
+        $html = $this->buildHtml($data, (new SchoolDocumentHeaderService())->render((int)$payment['school_id']));
 
         $options = new Options();
         $options->set('isRemoteEnabled', false);
@@ -148,7 +148,7 @@ class ReceiptService
         ];
     }
 
-    private function buildHtml(array $data): string
+    private function buildHtml(array $data, string $schoolHeader): string
     {
         $schoolLine = trim($data['school_address'] . ($data['school_city'] ? ', ' . $data['school_city'] : ''));
         $schoolContact = $data['school_phone'] !== '' ? 'Tel : ' . $this->escape($data['school_phone']) : '';
@@ -179,11 +179,7 @@ class ReceiptService
 </style>
 </head>
 <body>
-    <div class="header">
-        <p class="school-name">' . $this->escape($data['school_name']) . '</p>
-        ' . ($schoolLine !== '' ? '<p class="muted">' . $this->escape($schoolLine) . '</p>' : '') . '
-        ' . ($schoolContact !== '' ? '<p class="muted">' . $schoolContact . '</p>' : '') . '
-    </div>
+    ' . $schoolHeader . '
 
     <p class="title">RECU DE PAIEMENT</p>
     <p class="receipt-no">N° ' . $this->escape($data['receipt_number']) . ' — Emis le ' . $this->escape($data['issued_at']) . '</p>
