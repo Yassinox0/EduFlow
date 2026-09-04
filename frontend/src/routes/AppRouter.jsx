@@ -1,6 +1,7 @@
 ﻿import { BrowserRouter, Route, Routes } from "react-router-dom";
 import ProtectedRoute from "../components/common/ProtectedRoute";
 import RoleRoute from "../components/common/RoleRoute";
+import PermissionRoute from "../components/common/PermissionRoute";
 import DashboardLayout from "../layouts/DashboardLayout";
 import DashboardPage from "../pages/DashboardPage";
 import LoginPage from "../pages/LoginPage";
@@ -37,18 +38,18 @@ export default function AppRouter() {
         >
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/students" element={<StudentsPage />} />
-          <Route path="/classes" element={<ClassesPage />} />
-          <Route path="/schedules" element={<SchedulesPage />} />
+          <Route path="/classes" element={<PermissionRoute permission="classes.view"><ClassesPage /></PermissionRoute>} />
+          <Route path="/schedules" element={<PermissionRoute permission="schedules.view"><SchedulesPage /></PermissionRoute>} />
           <Route path="/school-settings" element={<RoleRoute roles={["admin"]}><SchoolSettingsPage /></RoleRoute>} />
-          <Route path="/personnel" element={<PersonnelPage />} />
-          <Route path="/personnel/new" element={<PersonnelFormPage />} />
-          <Route path="/personnel/:id/edit" element={<PersonnelFormPage />} />
+          <Route path="/personnel" element={<PermissionRoute permission="personnel.view"><PersonnelPage /></PermissionRoute>} />
+          <Route path="/personnel/new" element={<PermissionRoute permission="personnel.manage"><PersonnelFormPage /></PermissionRoute>} />
+          <Route path="/personnel/:id/edit" element={<PermissionRoute permission="personnel.manage"><PersonnelFormPage /></PermissionRoute>} />
           <Route path="/students/new" element={<StudentFormPage />} />
           <Route path="/students/:id/edit" element={<StudentFormPage />} />
           <Route path="/students/:id" element={<StudentProfilePage />} />
-          <Route path="/payments" element={<PaymentsPage />} />
-          <Route path="/monthly-fees" element={<MonthlyFeesPage />} />
-          <Route path="/unpaid" element={<UnpaidPage />} />
+          <Route path="/payments" element={<PermissionRoute permission="payments.view"><PaymentsPage /></PermissionRoute>} />
+          <Route path="/monthly-fees" element={<PermissionRoute permission="monthly_fees.view"><MonthlyFeesPage /></PermissionRoute>} />
+          <Route path="/unpaid" element={<PermissionRoute permission="monthly_fees.view"><UnpaidPage /></PermissionRoute>} />
           <Route
             path="/admin"
             element={

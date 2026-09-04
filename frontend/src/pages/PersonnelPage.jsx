@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { getPersonnel, updatePersonnelStatus } from "../services/personnelService";
+import useAuth from "../hooks/useAuth";
 
 const typeLabel = (value) => value === "TEACHER" ? "Professeur" : "Staff administratif";
 const statusLabel = (value) => ({ ACTIF: "Actif", EN_CONGE: "En congé", ARCHIVE: "Archivé" }[value] || value);
 
 export default function PersonnelPage() {
   const navigate = useNavigate();
+  const { can } = useAuth();
   const location = useLocation();
   const [personnel, setPersonnel] = useState([]);
   const [filters, setFilters] = useState({ search: "", personnel_type: "", status: "", service_assignment: "" });
@@ -46,7 +48,7 @@ export default function PersonnelPage() {
   return <div className="admin-grid personnel-page">
     <section className="panel students-page-header">
       <div><h2>Personnel</h2><p className="muted">Professeurs et staff administratif de l’établissement.</p></div>
-      <Link className="primary-link-btn" to="/personnel/new">+ Ajouter un membre</Link>
+      {can("personnel.manage") && <Link className="primary-link-btn" to="/personnel/new">+ Ajouter un membre</Link>}
     </section>
     <section className="panel">
       <form className="filters-grid" onSubmit={submitFilters}>
@@ -60,7 +62,7 @@ export default function PersonnelPage() {
     {error && <p className="error-text">{error}</p>}{message && <p className="success-text">{message}</p>}
     <section className="panel table-wrap">
       {loading ? <p>Chargement du personnel…</p> : <table><thead><tr><th>Matricule</th><th>Nom complet</th><th>Type</th><th>Poste ou fonction</th><th>Téléphone</th><th>Statut</th><th>Actions</th></tr></thead><tbody>
-        {personnel.map((member) => <tr key={member.id}><td>{member.personnel_number}</td><td>{member.last_name} {member.first_name}</td><td>{typeLabel(member.personnel_type)}</td><td>{member.job_title || member.function_name || "-"}</td><td>{member.phone || "-"}</td><td><span className={`status-badge status-${String(member.status || "").toLowerCase()}`}>{statusLabel(member.status)}</span></td><td><div className="table-actions"><button type="button" className="secondary-btn" onClick={() => navigate(`/personnel/${member.id}/edit`)}>Modifier</button>{member.status !== "ARCHIVE" && <button type="button" className="danger-btn" disabled={archivingId === member.id} onClick={() => archive(member)}>{archivingId === member.id ? "Archivage…" : "Archiver"}</button>}</div></td></tr>)}
+        {personnel.map((member) => <tr key={member.id}><td>{member.personnel_number}</td><td>{member.last_name} {member.first_name}</td><td>{typeLabel(member.personnel_type)}</td><td>{member.job_title || member.function_name || "-"}</td><td>{member.phone || "-"}</td><td><span className={`status-badge status-${String(member.status || "").toLowerCase()}`}>{statusLabel(member.status)}</span></td><td>{can("personnel.manage") && <div className="table-actions"><button type="button" className="secondary-btn" onClick={() => navigate(`/personnel/${member.id}/edit`)}>Modifier</button>{member.status !== "ARCHIVE" && <button type="button" className="danger-btn" disabled={archivingId === member.id} onClick={() => archive(member)}>{archivingId === member.id ? "Archivage…" : "Archiver"}</button>}</div>}</td></tr>)}
         {!personnel.length && <tr><td colSpan="7" className="empty-cell">Aucun membre du personnel ne correspond à votre recherche.</td></tr>}
       </tbody></table>}
     </section>

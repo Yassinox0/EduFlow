@@ -28,7 +28,7 @@ class PermissionMiddleware
         ');
         $stmt->execute([(string)($user['role'] ?? ''), $this->permission]);
         if (!$stmt->fetchColumn()) {
-            Response::json(['message' => 'Forbidden: missing permission ' . $this->permission], 403);
+            Response::json(['message' => 'Accès non autorisé'], 403);
         }
     }
 }

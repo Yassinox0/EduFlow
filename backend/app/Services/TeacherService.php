@@ -35,7 +35,7 @@ class TeacherService
                 u.role,
                 u.status
             FROM users u
-            WHERE u.role IN ("professeur", "user")
+            WHERE u.role = "professeur"
               AND u.school_id IS NOT NULL
         ';
         $params = [];
@@ -202,7 +202,7 @@ class TeacherService
         }
 
         try {
-            Database::connect()->prepare('DELETE FROM users WHERE id = ? AND role IN ("professeur", "user")')->execute([$teacherId]);
+            Database::connect()->prepare('DELETE FROM users WHERE id = ? AND role = "professeur"')->execute([$teacherId]);
             return ['id' => $teacherId, 'message' => 'Teacher deleted successfully'];
         } catch (PDOException) {
             return ['error' => 'Teacher deletion failed'];

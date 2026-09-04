@@ -39,7 +39,7 @@ const resolveRoleLabel = (role) => {
 };
 
 export default function DashboardLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   const navigate = useNavigate();
   const [school, setSchool] = useState({ id: null, name: null, logo_path: null });
   const [logoSrc, setLogoSrc] = useState(defaultLogo);
@@ -87,14 +87,14 @@ export default function DashboardLayout() {
             ) : (
               <>
                 <li><NavLink to="/dashboard">Tableau de bord</NavLink></li>
-                <li><NavLink to="/students">Eleves</NavLink></li>
-                {user?.role === "admin" && <li><NavLink to="/personnel">Personnel</NavLink></li>}
+                {can("students.manage") && <li><NavLink to="/students">Eleves</NavLink></li>}
+                {can("personnel.view") && <li><NavLink to="/personnel">Personnel</NavLink></li>}
                 {user?.role === "admin" && <li><NavLink to="/school-settings">Paramètres école</NavLink></li>}
-                <li><NavLink to="/classes">Classes</NavLink></li>
-                <li><NavLink to="/schedules">Emploi du temps</NavLink></li>
-                <li><NavLink to="/payments">Paiements</NavLink></li>
-                <li><NavLink to="/monthly-fees">Mensualites</NavLink></li>
-                <li><NavLink to="/unpaid">Impayes</NavLink></li>
+                {can("classes.view") && <li><NavLink to="/classes">Classes</NavLink></li>}
+                {can("schedules.view") && <li><NavLink to="/schedules">Emploi du temps</NavLink></li>}
+                {can("payments.view") && <li><NavLink to="/payments">Paiements</NavLink></li>}
+                {can("monthly_fees.view") && <li><NavLink to="/monthly-fees">Mensualites</NavLink></li>}
+                {can("monthly_fees.view") && <li><NavLink to="/unpaid">Impayes</NavLink></li>}
                 {user?.role === "admin" && (
                   <li><NavLink to="/admin">Equipe</NavLink></li>
                 )}
