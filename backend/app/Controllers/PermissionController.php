@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\CoreDatabase;
-use App\CoreRequest;
+use App\Core\Database;
+use App\Core\Request;
 use App\Core\Response;
 
 class PermissionController

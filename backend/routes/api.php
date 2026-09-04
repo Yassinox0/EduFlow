@@ -85,6 +85,8 @@ Router::add('POST', '/api/payments', [new PaymentController(), 'store'], [AuthMi
 Router::add('GET', '/api/payments/{id}', [new PaymentController(), 'show'], [AuthMiddleware::class, new PermissionMiddleware('payments.view')]);
 Router::add('PUT', '/api/payments/{id}', [new PaymentController(), 'update'], [AuthMiddleware::class, new PermissionMiddleware('payments.update')]);
 Router::add('DELETE', '/api/payments/{id}', [new PaymentController(), 'delete'], [AuthMiddleware::class, new PermissionMiddleware('payments.delete')]);
+Router::add('GET', '/api/receipts/{id}', [new ReceiptController(), 'show'], [AuthMiddleware::class, new PermissionMiddleware('payments.export')]);
+Router::add('GET', '/api/receipts/{id}/pdf', [new ReceiptController(), 'downloadPdf'], [AuthMiddleware::class, new PermissionMiddleware('payments.export')]);
 Router::add('GET', '/api/payment-methods', [new PaymentMethodController(), 'index'], [AuthMiddleware::class]);
 Router::add('POST', '/api/payment-methods', [new PaymentMethodController(), 'store'], [AuthMiddleware::class, new RoleMiddleware('super_admin')]);
 Router::add('GET', '/api/payment-methods/{id}', [new PaymentMethodController(), 'show'], [AuthMiddleware::class]);
@@ -132,6 +134,6 @@ Router::add('POST', '/api/users/{id}/reset-password', [new UserController(), 're
 Router::add('GET', '/api/receipts', function (): void {
     $paymentId = (int)($_GET['payment_id'] ?? 0);
     (new ReceiptController())->show($paymentId);
-}, [AuthMiddleware::class]);
+}, [AuthMiddleware::class, new PermissionMiddleware('payments.export')]);
 
 Router::dispatch(Request::method(), Request::uri());

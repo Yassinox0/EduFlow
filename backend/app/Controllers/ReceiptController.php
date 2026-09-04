@@ -12,7 +12,7 @@ class ReceiptController
 {
     public function show(): void
     {
-        $id = (int)Request::param('id', 0);
+        $id = (int)Request::param('id', $_GET['payment_id'] ?? 0);
         $result = (new ReceiptService())->generateData($id);
 
         if (isset($result['error'])) {
@@ -24,7 +24,7 @@ class ReceiptController
 
     public function downloadPdf(): void
     {
-        $id = (int)Request::param('id', 0);
+        $id = (int)Request::param('id', $_GET['payment_id'] ?? 0);
         $result = (new ReceiptService())->generatePdf($id);
 
         if (isset($result['error'])) {

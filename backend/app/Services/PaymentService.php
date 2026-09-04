@@ -87,11 +87,16 @@ class PaymentService
         }
 
         try {
-            $pdo->beginTransaction();
+            $startedTransaction = !$pdo->inTransaction();
+            if ($startedTransaction) {
+                $pdo->beginTransaction();
+            }
 
             $resolved = $monthlyFeeService->resolveOrCreateFee($schoolId, $studentId, $monthlyFeeId, $monthLabel, $yearValue);
             if (isset($resolved['error'])) {
-                $pdo->rollBack();
+                if ($startedTransaction) {
+                    $pdo->rollBack();
+                }
                 return $resolved;
             }
 
@@ -101,12 +106,16 @@ class PaymentService
             $remainingAmount = (float)($fee['remaining_amount'] ?? max(0, $totalAmount - $currentPaid));
 
             if ($remainingAmount <= 0) {
-                $pdo->rollBack();
+                if ($startedTransaction) {
+                    $pdo->rollBack();
+                }
                 return ['error' => 'Monthly fee already fully paid'];
             }
 
             if ($amountPaid > $remainingAmount) {
-                $pdo->rollBack();
+                if ($startedTransaction) {
+                    $pdo->rollBack();
+                }
                 return ['error' => 'amount_paid exceeds remaining amount'];
             }
 
@@ -143,7 +152,9 @@ class PaymentService
             ');
             $updateFee->execute([$updatedPaid, $updatedRemaining, $updatedStatus, (int)$fee['id']]);
 
-            $pdo->commit();
+            if ($startedTransaction) {
+                $pdo->commit();
+            }
 
             return [
                 'id' => $paymentId,
@@ -154,7 +165,7 @@ class PaymentService
                 'message' => 'Payment created successfully',
             ];
         } catch (Throwable) {
-            if ($pdo->inTransaction()) {
+            if (($startedTransaction ?? false) && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             return ['error' => 'Payment creation failed'];
@@ -265,7 +276,10 @@ class PaymentService
         }
 
         try {
-            $pdo->beginTransaction();
+            $startedTransaction = !$pdo->inTransaction();
+            if ($startedTransaction) {
+                $pdo->beginTransaction();
+            }
 
             // Get the current monthly fee
             $feeStmt = $pdo->prepare('SELECT * FROM monthly_fees WHERE id = ? LIMIT 1');
@@ -273,7 +287,9 @@ class PaymentService
             $fee = $feeStmt->fetch();
 
             if (!$fee) {
-                $pdo->rollBack();
+                if ($startedTransaction) {
+                    $pdo->rollBack();
+                }
                 return ['error' => 'Monthly fee not found'];
             }
 
@@ -287,7 +303,9 @@ class PaymentService
             
             // Validate new amount doesn't exceed total
             if ($newFeeAmountPaid > $totalAmount) {
-                $pdo->rollBack();
+                if ($startedTransaction) {
+                    $pdo->rollBack();
+                }
                 return ['error' => 'Total amount paid would exceed monthly fee total'];
             }
 
@@ -320,7 +338,9 @@ class PaymentService
             ');
             $updateFee->execute([$newFeeAmountPaid, $newRemaining, $newStatus, $payment['monthly_fee_id']]);
 
-            $pdo->commit();
+            if ($startedTransaction) {
+                $pdo->commit();
+            }
 
             return [
                 'id' => $paymentId,
@@ -328,7 +348,7 @@ class PaymentService
                 'message' => 'Payment updated successfully',
             ];
         } catch (Throwable) {
-            if ($pdo->inTransaction()) {
+            if (($startedTransaction ?? false) && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             return ['error' => 'Payment update failed'];
@@ -346,7 +366,10 @@ class PaymentService
         }
 
         try {
-            $pdo->beginTransaction();
+            $startedTransaction = !$pdo->inTransaction();
+            if ($startedTransaction) {
+                $pdo->beginTransaction();
+            }
 
             // Get the monthly fee to update its status
             $feeStmt = $pdo->prepare('SELECT * FROM monthly_fees WHERE id = ? LIMIT 1');
@@ -354,7 +377,9 @@ class PaymentService
             $fee = $feeStmt->fetch();
 
             if (!$fee) {
-                $pdo->rollBack();
+                if ($startedTransaction) {
+                    $pdo->rollBack();
+                }
                 return ['error' => 'Monthly fee not found'];
             }
 
@@ -389,11 +414,13 @@ class PaymentService
             ');
             $updateFee->execute([$totalPaid, $remaining, $newStatus, $payment['monthly_fee_id']]);
 
-            $pdo->commit();
+            if ($startedTransaction) {
+                $pdo->commit();
+            }
 
             return ['id' => $paymentId, 'message' => 'Payment deleted successfully'];
         } catch (Throwable) {
-            if ($pdo->inTransaction()) {
+            if (($startedTransaction ?? false) && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             return ['error' => 'Payment deletion failed'];
