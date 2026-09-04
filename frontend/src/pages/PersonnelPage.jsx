@@ -3,8 +3,11 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { getPersonnel, updatePersonnelStatus } from "../services/personnelService";
 import useAuth from "../hooks/useAuth";
 
-const typeLabel = (value) => value === "TEACHER" ? "Professeur" : "Staff administratif";
+const typeLabel = (value) => ({ TEACHER: "Professeur", ADMINISTRATIVE_STAFF: "Staff administratif" }[value] || "-");
 const statusLabel = (value) => ({ ACTIF: "Actif", EN_CONGE: "En congé", ARCHIVE: "Archivé" }[value] || value);
+const specialtyOrDepartment = (member) => member.personnel_type === "TEACHER"
+  ? member.specialty || "-"
+  : member.department || member.administrative_department || member.service_assignment || "-";
 
 export default function PersonnelPage() {
   const navigate = useNavigate();
@@ -61,9 +64,9 @@ export default function PersonnelPage() {
     </section>
     {error && <p className="error-text">{error}</p>}{message && <p className="success-text">{message}</p>}
     <section className="panel table-wrap">
-      {loading ? <p>Chargement du personnel…</p> : <table><thead><tr><th>Matricule</th><th>Nom complet</th><th>Type</th><th>Poste ou fonction</th><th>Téléphone</th><th>Statut</th><th>Actions</th></tr></thead><tbody>
-        {personnel.map((member) => <tr key={member.id}><td>{member.personnel_number}</td><td>{member.last_name} {member.first_name}</td><td>{typeLabel(member.personnel_type)}</td><td>{member.job_title || member.function_name || "-"}</td><td>{member.phone || "-"}</td><td><span className={`status-badge status-${String(member.status || "").toLowerCase()}`}>{statusLabel(member.status)}</span></td><td>{can("personnel.manage") && <div className="table-actions"><button type="button" className="secondary-btn" onClick={() => navigate(`/personnel/${member.id}/edit`)}>Modifier</button>{member.status !== "ARCHIVE" && <button type="button" className="danger-btn" disabled={archivingId === member.id} onClick={() => archive(member)}>{archivingId === member.id ? "Archivage…" : "Archiver"}</button>}</div>}</td></tr>)}
-        {!personnel.length && <tr><td colSpan="7" className="empty-cell">Aucun membre du personnel ne correspond à votre recherche.</td></tr>}
+      {loading ? <p>Chargement du personnel…</p> : <table><thead><tr><th>Matricule</th><th>Nom complet</th><th>Type</th><th>Poste ou fonction</th><th>Service / spécialité</th><th>Téléphone</th><th>Statut</th><th>Actions</th></tr></thead><tbody>
+        {personnel.map((member) => <tr key={member.id}><td>{member.personnel_number}</td><td>{member.last_name} {member.first_name}</td><td>{typeLabel(member.personnel_type)}</td><td>{member.job_title || member.function_name || "-"}</td><td>{specialtyOrDepartment(member)}</td><td>{member.phone || "-"}</td><td><span className={`status-badge status-${String(member.status || "").toLowerCase()}`}>{statusLabel(member.status)}</span></td><td>{can("personnel.manage") && <div className="table-actions"><button type="button" className="secondary-btn" onClick={() => navigate(`/personnel/${member.id}/edit`)}>Modifier</button>{member.status !== "ARCHIVE" && <button type="button" className="danger-btn" disabled={archivingId === member.id} onClick={() => archive(member)}>{archivingId === member.id ? "Archivage…" : "Archiver"}</button>}</div>}</td></tr>)}
+        {!personnel.length && <tr><td colSpan="8" className="empty-cell">Aucun membre du personnel ne correspond à votre recherche.</td></tr>}
       </tbody></table>}
     </section>
   </div>;
