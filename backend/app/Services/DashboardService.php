@@ -29,7 +29,31 @@ class DashboardService
         $stmtUnpaid->execute($params);
         $totalUnpaid = (float)($stmtUnpaid->fetch()['total'] ?? 0);
 
-        $stmtLate = $pdo->prepare("SELECT COUNT(DISTINCT student_id) AS total FROM monthly_fees{$whereSchoolAnd}status != 'PAID'");
+        $lateSql = "
+            SELECT COUNT(DISTINCT mf.student_id) AS total
+            FROM monthly_fees mf
+            INNER JOIN students s ON s.id = mf.student_id
+            WHERE mf.status != 'PAID'
+              AND mf.month_label REGEXP '^[0-9]{1,2}$'
+              AND STR_TO_DATE(
+                    CONCAT(
+                        mf.year_value, '-', LPAD(mf.month_label, 2, '0'), '-',
+                        LPAD(
+                            LEAST(
+                                DAY(s.created_at),
+                                DAY(LAST_DAY(STR_TO_DATE(CONCAT(mf.year_value, '-', LPAD(mf.month_label, 2, '0'), '-01'), '%Y-%m-%d')))
+                            ),
+                            2,
+                            '0'
+                        )
+                    ),
+                    '%Y-%m-%d'
+                  ) <= CURDATE()
+        ";
+        if (!$isSuperAdmin) {
+            $lateSql .= ' AND mf.school_id = ?';
+        }
+        $stmtLate = $pdo->prepare($lateSql);
         $stmtLate->execute($params);
         $lateStudents = (int)($stmtLate->fetch()['total'] ?? 0);
 
@@ -48,6 +72,7 @@ class DashboardService
         $recentSql = "
             SELECT
                 p.id,
+                p.student_id,
                 p.amount_paid,
                 p.payment_date,
                 p.payment_method,

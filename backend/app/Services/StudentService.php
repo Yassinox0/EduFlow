@@ -92,6 +92,174 @@ class StudentService
         return $stmt->fetchAll();
     }
 
+    public function getById(int $studentId): array|false
+    {
+        if ($studentId <= 0) {
+            return false;
+        }
+
+        $pdo = Database::connect();
+        [$role, $schoolId] = $this->authScope();
+        $sql = '
+            SELECT
+                s.*,
+                COALESCE(cl.level_name, cl.name, s.class_level) AS class_level_name,
+                COALESCE(cl.group_name, s.class_name) AS class_group_name,
+                p.first_name AS parent_first_name,
+                p.last_name AS parent_last_name,
+                p.phone AS parent_phone,
+                p.email AS parent_email,
+                e.id AS enrollment_id,
+                e.enrollment_date,
+                e.status AS enrollment_status,
+                ay.name AS academic_year_name
+            FROM students s
+            LEFT JOIN class_levels cl ON cl.id = s.class_level_id
+            LEFT JOIN parents p ON p.id = s.parent_id
+            LEFT JOIN enrollments e ON e.student_id = s.id AND e.school_id = s.school_id
+            LEFT JOIN academic_years ay ON ay.id = e.academic_year_id
+            WHERE s.id = ?
+        ';
+        $params = [$studentId];
+        if ($role !== 'super_admin') {
+            $sql .= ' AND s.school_id = ?';
+            $params[] = $schoolId;
+        }
+        $sql .= ' ORDER BY COALESCE(ay.is_current, 0) DESC, e.id DESC LIMIT 1';
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $student = $stmt->fetch();
+        if (!$student) {
+            return false;
+        }
+
+        $financeStmt = $pdo->prepare('
+            SELECT
+                COALESCE(SUM(total_amount), 0) AS total_billed,
+                COALESCE(SUM(amount_paid), 0) AS total_paid,
+                COALESCE(SUM(remaining_amount), 0) AS total_remaining,
+                SUM(CASE WHEN status = "UNPAID" THEN 1 ELSE 0 END) AS unpaid_count,
+                SUM(CASE WHEN status = "PARTIAL" THEN 1 ELSE 0 END) AS partial_count
+            FROM monthly_fees
+            WHERE student_id = ? AND school_id = ?
+        ');
+        $financeStmt->execute([$studentId, (int)$student['school_id']]);
+        $finance = $financeStmt->fetch() ?: [];
+
+        $feesStmt = $pdo->prepare('
+            SELECT id, month_label, year_value, total_amount, amount_paid, remaining_amount, status
+            FROM monthly_fees
+            WHERE student_id = ? AND school_id = ?
+            ORDER BY year_value DESC, CAST(month_label AS UNSIGNED) DESC, id DESC
+        ');
+        $feesStmt->execute([$studentId, (int)$student['school_id']]);
+
+        $receiptProjection = $this->paymentReceiptProjection($pdo);
+        $paymentsStmt = $pdo->prepare('
+            SELECT
+                p.id, ' . $receiptProjection . ', p.amount_paid, p.payment_date, p.payment_method,
+                p.created_at,
+                mf.month_label, mf.year_value,
+                pm.label AS payment_method_label
+            FROM payments p
+            INNER JOIN monthly_fees mf ON mf.id = p.monthly_fee_id
+            LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id
+            WHERE p.student_id = ? AND p.school_id = ?
+            ORDER BY p.payment_date DESC, p.id DESC
+        ');
+        $paymentsStmt->execute([$studentId, (int)$student['school_id']]);
+
+        $siblings = [];
+        if (!empty($student['parent_id'])) {
+            $siblingsStmt = $pdo->prepare('
+                SELECT
+                    s.id, s.first_name, s.last_name, s.status,
+                    COALESCE(cl.level_name, cl.name, s.class_level) AS class_level_name,
+                    COALESCE(cl.group_name, s.class_name) AS class_group_name
+                FROM students s
+                LEFT JOIN class_levels cl ON cl.id = s.class_level_id
+                WHERE s.parent_id = ? AND s.school_id = ? AND s.id != ?
+                ORDER BY s.last_name ASC, s.first_name ASC
+            ');
+            $siblingsStmt->execute([(int)$student['parent_id'], (int)$student['school_id'], $studentId]);
+            $siblings = $siblingsStmt->fetchAll();
+        }
+
+        return [
+            'student' => $student,
+            'parent' => [
+                'id' => $student['parent_id'] ? (int)$student['parent_id'] : null,
+                'first_name' => $student['parent_first_name'],
+                'last_name' => $student['parent_last_name'],
+                'name' => trim((string)$student['parent_first_name'] . ' ' . (string)$student['parent_last_name']) ?: $student['parent_name'],
+                'phone' => $student['parent_phone'] ?: $student['phone'],
+                'email' => $student['parent_email'],
+            ],
+            'siblings' => $siblings,
+            'finance' => [
+                'total_billed' => (float)($finance['total_billed'] ?? 0),
+                'total_paid' => (float)($finance['total_paid'] ?? 0),
+                'total_remaining' => (float)($finance['total_remaining'] ?? 0),
+                'unpaid_count' => (int)($finance['unpaid_count'] ?? 0),
+                'partial_count' => (int)($finance['partial_count'] ?? 0),
+            ],
+            'monthly_fees' => $feesStmt->fetchAll(),
+            'payments' => $paymentsStmt->fetchAll(),
+        ];
+    }
+
+    public function getPhotoStorageContext(int $studentId): array
+    {
+        if ($studentId <= 0) {
+            return ['error' => 'Student not found'];
+        }
+
+        $pdo = Database::connect();
+        [$role, $schoolId] = $this->authScope();
+        $stmt = $pdo->prepare('
+            SELECT id, school_id, first_name, last_name, photo_path
+            FROM students
+            WHERE id = ?
+            LIMIT 1
+        ');
+        $stmt->execute([$studentId]);
+        $student = $stmt->fetch();
+
+        if (!$student) {
+            return ['error' => 'Student not found'];
+        }
+        if ($role !== 'super_admin' && (int)$student['school_id'] !== $schoolId) {
+            return ['error' => 'Forbidden'];
+        }
+
+        return [
+            'id' => (int)$student['id'],
+            'school_id' => (int)$student['school_id'],
+            'first_name' => (string)$student['first_name'],
+            'last_name' => (string)$student['last_name'],
+            'photo_path' => $student['photo_path'] ?: null,
+        ];
+    }
+
+    public function updatePhoto(int $studentId, string $photoPath): array
+    {
+        $student = $this->getPhotoStorageContext($studentId);
+        if (isset($student['error'])) {
+            return $student;
+        }
+
+        try {
+            $pdo = Database::connect();
+            $stmt = $pdo->prepare('UPDATE students SET photo_path = ? WHERE id = ? AND school_id = ?');
+            $stmt->execute([$photoPath, $studentId, (int)$student['school_id']]);
+        } catch (PDOException) {
+            return ['error' => 'Student photo could not be linked to the student record'];
+        }
+
+        return ['id' => $studentId, 'photo_path' => $photoPath, 'message' => 'Student photo updated'];
+    }
+
     public function create(array $data): array
     {
         $pdo = Database::connect();
@@ -515,6 +683,24 @@ class StudentService
         $stmt = $pdo->prepare('SELECT * FROM students WHERE id = ? LIMIT 1');
         $stmt->execute([$studentId]);
         return $stmt->fetch();
+    }
+
+    private function paymentReceiptProjection(PDO $pdo): string
+    {
+        $stmt = $pdo->query('
+            SELECT COUNT(*)
+            FROM information_schema.columns
+            WHERE table_schema = DATABASE()
+              AND table_name = "payments"
+              AND column_name IN ("receipt_number", "remaining_after_payment")
+        ');
+        $hasProfessionalReceiptColumns = (int)$stmt->fetchColumn() === 2;
+
+        if ($hasProfessionalReceiptColumns) {
+            return 'p.receipt_number, p.remaining_after_payment';
+        }
+
+        return 'CONCAT("REC-", LPAD(p.id, 6, "0")) AS receipt_number, NULL AS remaining_after_payment';
     }
 
     private function nullable(mixed $value): ?string

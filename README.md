@@ -1,4 +1,4 @@
-# EduFlow
+# OneCore
 
 Application de gestion scolaire orientee finance:
 - eleves, classes, mensualites, paiements, impayes,
@@ -43,17 +43,20 @@ Importer la structure:
 mysql -h 127.0.0.1 -P 3307 -u root -p < backend/storage/01_schema.sql
 ```
 
-Importer les donnees:
-```bash
-mysql -h 127.0.0.1 -P 3307 -u root -p < backend/storage/02_data_dump.sql
+Appliquer ensuite toutes les migrations:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\migrate-database.ps1
 ```
+
+`02_data_dump.sql` est un ancien jeu de donnees local. Il ne fait pas partie de
+la synchronisation normale entre collaborateurs.
 
 ## 4) Configurer le backend
 Fichier `backend/.env`:
 ```env
 APP_ENV=local
 APP_DEBUG=true
-APP_NAME="Salma Project"
+APP_NAME="OneCore"
 APP_URL=http://localhost
 DB_HOST=127.0.0.1
 DB_PORT=3307
@@ -86,7 +89,7 @@ php -S 127.0.0.1:8080 -t public public/index.php
 Fichier `frontend/.env`:
 ```env
 VITE_API_URL=http://127.0.0.1:8080
-VITE_BRAND_NAME=EduFlow
+VITE_BRAND_NAME=OneCore
 VITE_SCHOOL_NAME=Votre ecole
 ```
 
@@ -100,16 +103,32 @@ npm run dev
 URL frontend: `http://localhost:5173`
 
 ## 7) Comptes de test
-- super admin: `owner@eduflow.com` / `owner123`
+- super admin: `owner@onecore.local` / `owner123`
 - admin: `yassine.benmansour@miranda.com` / `admin123`
 - user: `salma@miranda.com` / `user123`
+
+Initialiser ou actualiser les donnees de demonstration Miranda (environnement
+`local` uniquement):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\seed-demo.ps1
+```
+
+Comptes professeurs ajoutes:
+
+- francais: `yasmine.benmansour@miranda.com` / `Prof@123`
+- arabe: `yahia.benmansour@miranda.com` / `Prof@123`
+
+Le script est idempotent et ne supprime aucune donnee. Il prepare les roles,
+parents, eleves, inscriptions, affectations, horaires et cas de paiement
+`PAID`, `PARTIAL` et `UNPAID` utilises pour la demonstration.
 
 ## 8) Reset mot de passe (super admin)
 Endpoint:
 - `POST /api/users/{id}/reset-password`
 
 Mot de passe applique apres reset:
-- `EduFlow@123`
+- `OneCore@123`
 
 Regles:
 - seul `super_admin` peut reset les comptes,
@@ -135,26 +154,60 @@ Regles:
   - paiements recents,
   - top impayes.
 
-## 10) Partager la base a une autre personne
-### Methode recommandee
-Partager le repo + les 2 scripts SQL (`01_schema.sql`, `02_data_dump.sql`).
+## 10) Synchroniser la base de donnees
 
-### Methode snapshot container (exact)
-Creer une image a partir du container:
-```bash
-docker commit salma-mysql eduflow-mysql:snapshot
+### Pour chaque collaborateur apres un `git pull`
+
+Depuis PowerShell, a la racine du projet:
+
+```powershell
+git switch main
+git pull origin main
+powershell -ExecutionPolicy Bypass -File .\migrate-database.ps1
+powershell -ExecutionPolicy Bypass -File .\migrate-database.ps1 -Status
 ```
 
-Exporter l'image:
-```bash
-docker save -o eduflow-mysql-snapshot.tar eduflow-mysql:snapshot
+Ces commandes appliquent uniquement les nouvelles migrations. Elles ne
+suppriment pas les donnees locales existantes.
+
+Pour ajouter ou actualiser les donnees de demonstration MIRANDA:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\seed-demo.ps1
 ```
 
-Chez l'autre personne:
-```bash
-docker load -i eduflow-mysql-snapshot.tar
-docker run -d --name salma-mysql -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=salma_project -p 3307:3306 eduflow-mysql:snapshot
+Le seed est facultatif et reserve a `APP_ENV=local`.
+
+### Lorsqu'un developpeur modifie la base
+
+1. Ne jamais modifier une migration deja poussee.
+2. Creer un nouveau fichier dans `backend/storage/migrations`:
+
+```text
+YYYY_MM_DD_NNN_description.sql
 ```
+
+3. Ajouter les changements SQL dans cette nouvelle migration.
+4. Actualiser `backend/storage/01_schema.sql` pour les nouvelles installations.
+5. Tester localement:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\migrate-database.ps1
+powershell -ExecutionPolicy Bypass -File .\migrate-database.ps1 -Status
+```
+
+6. Commiter la migration avec le code qui l'utilise:
+
+```powershell
+git add backend/storage/01_schema.sql backend/storage/migrations
+git add .
+git commit -m "feat(database): describe the database change"
+git push origin main
+```
+
+Les fichiers `.env`, les sauvegardes MySQL, les photos uploadees et les
+donnees reelles des eleves, parents et paiements ne doivent jamais etre
+pousses.
 
 ## 11) Depannage rapide
 - Login "Identifiants invalides ou API indisponible":
@@ -162,6 +215,6 @@ docker run -d --name salma-mysql -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=s
   - verifier `VITE_API_URL`,
   - verifier que MySQL tourne.
 - Erreurs SQL / tables manquantes:
-  - reimporter `01_schema.sql`, puis `02_data_dump.sql`.
+  - executer `.\migrate-database.ps1 -Status`, puis `.\migrate-database.ps1`.
 - Port MySQL occupe:
   - changer `-p 3307:3306` et `DB_PORT` en consequence.

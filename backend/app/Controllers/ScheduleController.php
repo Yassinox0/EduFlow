@@ -26,6 +26,21 @@ class ScheduleController
         Response::json((new ScheduleService())->getAll($filters));
     }
 
+    public function workloads(): void
+    {
+        $result = (new ScheduleService())->getWorkloads([
+            'school_id' => $_GET['school_id'] ?? null,
+            'teacher_id' => $_GET['teacher_id'] ?? null,
+            'year_value' => $_GET['year_value'] ?? null,
+            'week_number' => $_GET['week_number'] ?? null,
+        ]);
+        if (isset($result['error'])) {
+            Response::json(['message' => $result['error']], 422);
+        }
+
+        Response::json($result);
+    }
+
     public function show(): void
     {
         $id = (int)Request::param('id', 0);
@@ -42,7 +57,7 @@ class ScheduleController
     {
         $result = (new ScheduleService())->create(Request::json());
         if (isset($result['error'])) {
-            Response::json(['message' => $result['error']], !empty($result['conflict']) ? 409 : 422);
+            Response::json(['message' => $result['error'], 'code' => $result['code'] ?? null], !empty($result['conflict']) ? 409 : 422);
         }
 
         Response::json($result, 201);
@@ -61,7 +76,22 @@ class ScheduleController
             if (!empty($result['conflict'])) {
                 $status = 409;
             }
-            Response::json(['message' => $result['error']], $status);
+            Response::json(['message' => $result['error'], 'code' => $result['code'] ?? null], $status);
+        }
+
+        Response::json($result);
+    }
+
+    public function move(): void
+    {
+        $id = (int)Request::param('id', 0);
+        $result = (new ScheduleService())->move($id, Request::json());
+        if (isset($result['error'])) {
+            $status = $result['error'] === 'Schedule not found' ? 404 : (!empty($result['conflict']) ? 409 : 422);
+            if ($result['error'] === 'Forbidden') {
+                $status = 403;
+            }
+            Response::json(['message' => $result['error'], 'code' => $result['code'] ?? null], $status);
         }
 
         Response::json($result);
@@ -77,7 +107,7 @@ class ScheduleController
             if ($result['error'] === 'Forbidden') {
                 $status = 403;
             }
-            Response::json(['message' => $result['error']], $status);
+            Response::json(['message' => $result['error'], 'code' => $result['code'] ?? null], $status);
         }
 
         Response::json($result);

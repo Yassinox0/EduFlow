@@ -1,25 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getSchoolById, updateSchool, uploadSchoolLogo, importSchoolData } from "../services/schoolService";
-
-const TEMPLATE_HEADERS = [
-  "Nom",
-  "Prénom",
-  "Date de naissance",
-  "Sexe",
-  "Classe",
-  "Niveau scolaire",
-  "Nom du parent",
-  "Téléphone",
-  "Adresse",
-  "Montant de la mensualité",
-];
-
-const templateHref = `data:text/csv;charset=utf-8,${encodeURIComponent(`${TEMPLATE_HEADERS.join(";")}\n`)}`;
+import useI18n from "../hooks/useI18n";
+import { STUDENT_IMPORT_HEADERS } from "../config/schoolOptions";
 const isValidImportFile = (file) => /\.(xlsx|xls|csv)$/i.test(file?.name || "");
 
 export default function SchoolDetailsPage() {
   const { id } = useParams();
+  const { language, t } = useI18n();
   const [school, setSchool] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -30,6 +18,10 @@ export default function SchoolDetailsPage() {
   const [importProgress, setImportProgress] = useState(0);
   const [isImporting, setIsImporting] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const templateHref = useMemo(
+    () => `data:text/csv;charset=utf-8,${encodeURIComponent(`${STUDENT_IMPORT_HEADERS.join(";")}\n`)}`,
+    []
+  );
 
   const load = async () => {
     try {
@@ -38,24 +30,24 @@ export default function SchoolDetailsPage() {
       setFormData(data || {});
       setError("");
     } catch (err) {
-      setError(err?.response?.data?.message || err?.message || "Impossible de charger l'ecole");
+      setError(t("schools.loadError"));
       setSchool(null);
     }
   };
 
   useEffect(() => {
     load();
-  }, [id]);
+  }, [id, t]);
 
   const handleToggle = async () => {
     if (!school) return;
     const nextStatus = school.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
     try {
       await updateSchool(id, { status: nextStatus });
-      setMessage(`Statut de l'ecole mis a jour: ${nextStatus === "ACTIVE" ? "Actif" : "Inactif"}`);
+      setMessage(t("schools.statusUpdated", { status: nextStatus === "ACTIVE" ? t("statuses.active") : t("statuses.inactive") }));
       await load();
     } catch (err) {
-      setError(err?.response?.data?.message || "Echec de mise a jour du statut");
+      setError(t("schools.statusUpdateError"));
     }
   };
 
@@ -89,12 +81,12 @@ export default function SchoolDetailsPage() {
       };
 
       await updateSchool(id, updatePayload);
-      setMessage("Ecole mise a jour avec succes.");
+      setMessage(t("schools.updateSuccess"));
       setIsEditing(false);
       setLogoFile(null);
       await load();
     } catch (err) {
-      setError(err?.response?.data?.message || "Echec de mise a jour de l'ecole");
+      setError(t("schools.updateError"));
     }
   };
 
@@ -107,7 +99,7 @@ export default function SchoolDetailsPage() {
 
     if (!isValidImportFile(file)) {
       setSchoolDataFile(null);
-      setError("Format incorrect. Formats acceptés: .xlsx, .xls, .csv.");
+      setError(t("schools.invalidFile"));
       return;
     }
 
@@ -121,42 +113,40 @@ export default function SchoolDetailsPage() {
     setImportProgress(0);
 
     if (!schoolDataFile) {
-      setError("Le fichier d'import des élèves est obligatoire.");
+      setError(t("schools.studentImportRequired"));
       return;
     }
 
     try {
       setIsImporting(true);
       const imported = await importSchoolData(id, schoolDataFile, setImportProgress);
-      setMessage(`Import termine avec succes. ${imported.message || ""}`);
+      setMessage(t("schools.importComplete"));
       setSchoolDataFile(null);
       setImportProgress(100);
     } catch (err) {
-      const details = err?.response?.data?.details || [];
-      const suffix = Array.isArray(details) && details.length ? ` ${details.join(" ")}` : "";
-      setError((err?.response?.data?.message || "Echec de l'import de donnees.") + suffix);
+      setError(t("schools.importError"));
     } finally {
       setIsImporting(false);
     }
   };
 
   if (!school) {
-    return <section className="panel">Chargement...</section>;
+    return <section className="panel">{t("common.loading")}</section>;
   }
 
   return (
     <div className="admin-grid">
       <section className="panel hero-panel">
-        <p className="brand-kicker">Details ecole</p>
+        <p className="brand-kicker">{t("schools.details")}</p>
         <h2>{school.name}</h2>
-        <p className="muted">Code: {school.code} | Domaine: {school.email_domain}</p>
+        <p className="muted">{t("schools.codeAndDomain", { code: school.code, domain: school.email_domain })}</p>
       </section>
 
       {!isEditing && (
         <section className="panel">
-          <button type="button" onClick={() => setIsEditing(true)}>Modifier</button>
-          <button type="button" onClick={handleToggle} style={{ marginLeft: 12 }}>Activer / desactiver</button>
-          <Link to={`/super-admin/schools/${school.id}/admin`} style={{ marginLeft: 12 }}>Creer l'admin principal</Link>
+          <button type="button" onClick={() => setIsEditing(true)}>{t("common.edit")}</button>
+          <button type="button" onClick={handleToggle} style={{ marginLeft: 12 }}>{t("schools.toggleStatus")}</button>
+          <Link to={`/super-admin/schools/${school.id}/admin`} style={{ marginLeft: 12 }}>{t("schools.createMainAdmin")}</Link>
           {message && <p className="muted">{message}</p>}
           {error && <p className="error-text">{error}</p>}
         </section>
@@ -164,53 +154,53 @@ export default function SchoolDetailsPage() {
 
       {isEditing && (
         <section className="panel">
-          <h3>Modifier l'ecole</h3>
+          <h3>{t("schools.editSchool")}</h3>
           <form className="form-grid" onSubmit={handleEditSubmit}>
             <input
-              placeholder="Nom de l'ecole"
+              placeholder={t("schools.schoolName")}
               value={formData.name || ""}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               required
             />
             <input
-              placeholder="Code ecole"
+              placeholder={t("schools.schoolCode")}
               value={formData.code || ""}
               onChange={(e) => setFormData({ ...formData, code: e.target.value })}
               required
             />
             <input
-              placeholder="Slug (optionnel)"
+              placeholder={t("schools.optionalSlug")}
               value={formData.slug || ""}
               onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
             />
             <input
-              placeholder="Domaine email"
+              placeholder={t("schools.emailDomain")}
               value={formData.email_domain || ""}
               onChange={(e) => setFormData({ ...formData, email_domain: e.target.value })}
               required
             />
             <input
-              placeholder="Telephone"
+              placeholder={t("common.phone")}
               value={formData.phone || ""}
               onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
             />
             <input
-              placeholder="Adresse"
+              placeholder={t("common.address")}
               value={formData.address || ""}
               onChange={(e) => setFormData({ ...formData, address: e.target.value })}
             />
             <input
-              placeholder="Ville"
+              placeholder={t("schools.city")}
               value={formData.city || ""}
               onChange={(e) => setFormData({ ...formData, city: e.target.value })}
             />
             <input
-              placeholder="Pays"
+              placeholder={t("schools.country")}
               value={formData.country || ""}
               onChange={(e) => setFormData({ ...formData, country: e.target.value })}
             />
             <div>
-              <label>Couleur primaire</label>
+              <label>{t("schools.primaryColor")}</label>
               <input
                 type="color"
                 value={formData.primary_color || "#1E3A8A"}
@@ -218,7 +208,7 @@ export default function SchoolDetailsPage() {
               />
             </div>
             <div>
-              <label>Couleur secondaire</label>
+              <label>{t("schools.secondaryColor")}</label>
               <input
                 type="color"
                 value={formData.secondary_color || "#22C55E"}
@@ -226,7 +216,7 @@ export default function SchoolDetailsPage() {
               />
             </div>
             <input
-              placeholder="Devise (ex: MAD)"
+              placeholder={t("schools.currency")}
               value={formData.currency || "MAD"}
               onChange={(e) => setFormData({ ...formData, currency: e.target.value.toUpperCase() })}
             />
@@ -234,18 +224,18 @@ export default function SchoolDetailsPage() {
               value={formData.status || "ACTIVE"}
               onChange={(e) => setFormData({ ...formData, status: e.target.value })}
             >
-              <option value="ACTIVE">Actif</option>
-              <option value="INACTIVE">Inactif</option>
+              <option value="ACTIVE">{t("statuses.active")}</option>
+              <option value="INACTIVE">{t("statuses.inactive")}</option>
             </select>
             <input
               type="file"
               accept=".png,.jpg,.jpeg,.svg,.webp"
               onChange={(e) => setLogoFile(e.target.files?.[0] || null)}
             />
-            {logoFile && <p className="muted">Logo choisi: {logoFile.name}</p>}
+            {logoFile && <p className="muted">{t("schools.selectedLogo", { name: logoFile.name })}</p>}
             
             <div style={{ display: "flex", gap: "12px", gridColumn: "1/-1" }}>
-              <button type="submit">Enregistrer les modifications</button>
+              <button type="submit">{t("schools.saveChanges")}</button>
               <button
                 type="button"
                 onClick={() => {
@@ -255,7 +245,7 @@ export default function SchoolDetailsPage() {
                   setError("");
                 }}
               >
-                Annuler
+                {t("common.cancel")}
               </button>
             </div>
             
@@ -267,7 +257,7 @@ export default function SchoolDetailsPage() {
 
       {!isEditing && (
         <section className="panel">
-          <h3>Importer des eleves</h3>
+          <h3>{t("schools.importStudents")}</h3>
           <form className="form-grid" onSubmit={handleImportSubmit}>
             <div
               className={`upload-dropzone ${isDragging ? "upload-dropzone-active" : ""}`}
@@ -283,9 +273,9 @@ export default function SchoolDetailsPage() {
               }}
             >
               <div>
-                <p className="kpi-label">Importer les donnees des eleves *</p>
-                <p className="muted">Glissez un fichier .xlsx, .xls ou .csv, ou sélectionnez-le.</p>
-                {schoolDataFile && <p className="muted">Fichier choisi: {schoolDataFile.name}</p>}
+                <p className="kpi-label">{t("schools.importStudentsData")}</p>
+                <p className="muted">{t("schools.importHelp")}</p>
+                {schoolDataFile && <p className="muted">{t("schools.selectedFile", { name: schoolDataFile.name })}</p>}
               </div>
               <input
                 type="file"
@@ -293,8 +283,8 @@ export default function SchoolDetailsPage() {
                 onChange={(e) => handleSchoolDataFile(e.target.files?.[0] || null)}
               />
             </div>
-            <a className="text-link" href={templateHref} download="modele-import-eleves.csv">
-              Telecharger le modele CSV
+            <a className="text-link" href={templateHref} download={t("schools.studentsTemplateFilename")}>
+              {t("schools.downloadTemplate")}
             </a>
             {isImporting && (
               <div className="progress-wrap">
@@ -302,7 +292,7 @@ export default function SchoolDetailsPage() {
               </div>
             )}
             <button type="submit" disabled={isImporting} style={{ gridColumn: "1/-1" }}>
-              {isImporting ? "Import en cours..." : "Importer les eleves"}
+              {isImporting ? t("schools.importing") : t("schools.importStudentsAction")}
             </button>
             {message && <p className="muted" style={{ gridColumn: "1/-1" }}>{message}</p>}
             {error && <p className="error-text" style={{ gridColumn: "1/-1" }}>{error}</p>}
@@ -312,30 +302,30 @@ export default function SchoolDetailsPage() {
 
       {!isEditing && (
         <section className="panel">
-          <h3>Lien vers les eleves</h3>
-          <p className="muted">Une fois les eleves importes, vous pouvez les consulter et les gerer :</p>
+          <h3>{t("schools.studentsLink")}</h3>
+          <p className="muted">{t("schools.studentsLinkHelp")}</p>
           <Link to="/students" style={{ marginTop: "12px", display: "inline-block" }}>
-            Voir tous les eleves
+            {t("schools.viewStudents")}
           </Link>
         </section>
       )}
 
       {!isEditing && (
         <section className="panel">
-          <h3>Informations de l'ecole</h3>
+          <h3>{t("schools.information")}</h3>
           <div style={{ display: "grid", gap: "12px" }}>
-            <div><strong>Code:</strong> {school.code}</div>
-            <div><strong>Slug:</strong> {school.slug || "-"}</div>
-            <div><strong>Domaine email:</strong> {school.email_domain}</div>
-            <div><strong>Telephone:</strong> {school.phone || "-"}</div>
-            <div><strong>Adresse:</strong> {school.address || "-"}</div>
-            <div><strong>Ville:</strong> {school.city || "-"}</div>
-            <div><strong>Pays:</strong> {school.country || "-"}</div>
-            <div><strong>Devise:</strong> {school.currency}</div>
-            <div><strong>Couleur primaire:</strong> <span style={{ display: "inline-block", width: "20px", height: "20px", backgroundColor: school.primary_color, border: "1px solid #ccc", verticalAlign: "middle", marginLeft: "8px" }} /></div>
-            <div><strong>Couleur secondaire:</strong> <span style={{ display: "inline-block", width: "20px", height: "20px", backgroundColor: school.secondary_color, border: "1px solid #ccc", verticalAlign: "middle", marginLeft: "8px" }} /></div>
-            <div><strong>Statut:</strong> {school.status === "ACTIVE" ? "Actif" : "Inactif"}</div>
-            <div><strong>Creee le:</strong> {new Date(school.created_at).toLocaleDateString("fr-FR")}</div>
+            <div><strong>{t("schools.schoolCode")}:</strong> {school.code}</div>
+            <div><strong>{t("schools.optionalSlug")}:</strong> {school.slug || "-"}</div>
+            <div><strong>{t("schools.emailDomain")}:</strong> {school.email_domain}</div>
+            <div><strong>{t("common.phone")}:</strong> {school.phone || "-"}</div>
+            <div><strong>{t("common.address")}:</strong> {school.address || "-"}</div>
+            <div><strong>{t("schools.city")}:</strong> {school.city || "-"}</div>
+            <div><strong>{t("schools.country")}:</strong> {school.country || "-"}</div>
+            <div><strong>{t("schools.currency")}:</strong> {school.currency}</div>
+            <div><strong>{t("schools.primaryColor")}:</strong> <span style={{ display: "inline-block", width: "20px", height: "20px", backgroundColor: school.primary_color, border: "1px solid #ccc", verticalAlign: "middle", marginLeft: "8px" }} /></div>
+            <div><strong>{t("schools.secondaryColor")}:</strong> <span style={{ display: "inline-block", width: "20px", height: "20px", backgroundColor: school.secondary_color, border: "1px solid #ccc", verticalAlign: "middle", marginLeft: "8px" }} /></div>
+            <div><strong>{t("common.status")}:</strong> {school.status === "ACTIVE" ? t("statuses.active") : t("statuses.inactive")}</div>
+            <div><strong>{t("schools.createdAt")}:</strong> {new Date(school.created_at).toLocaleDateString(language === "ar" ? "ar-MA" : "fr-FR")}</div>
           </div>
         </section>
       )}

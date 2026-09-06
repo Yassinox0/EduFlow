@@ -9,7 +9,7 @@ export default function RoleRoute({ roles, children }) {
   }
 
   if (!roles.includes(user.role)) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={user.role === "professeur" ? "/teacher/dashboard" : "/dashboard"} replace />;
   }
 
   return children;

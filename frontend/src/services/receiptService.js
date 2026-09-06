@@ -11,8 +11,9 @@ const triggerBlobDownload = (blob, filename) => {
   window.URL.revokeObjectURL(url);
 };
 
-export const downloadReceiptPdf = async (paymentId) => {
+export const getReceiptPdfBlob = async (paymentId, language = "fr") => {
   const response = await api.get(`/api/receipts/${paymentId}/pdf`, {
+    params: { lang: language === "ar" ? "ar" : "fr" },
     responseType: "blob",
   });
 
@@ -20,16 +21,23 @@ export const downloadReceiptPdf = async (paymentId) => {
   if (contentType.includes("application/json")) {
     const text = await response.data.text();
     const payload = JSON.parse(text);
-    throw new Error(payload.message || "Impossible de generer le recu PDF.");
+    throw new Error(payload.message || payload.code || "RECEIPT_PDF_ERROR");
   }
 
   const filename = `recu-paiement-${paymentId}.pdf`;
   const blob = new Blob([response.data], { type: "application/pdf" });
+  return { blob, filename };
+};
+
+export const downloadReceiptPdf = async (paymentId, language = "fr") => {
+  const { blob, filename } = await getReceiptPdfBlob(paymentId, language);
   triggerBlobDownload(blob, filename);
   return filename;
 };
 
-export const getReceiptData = async (paymentId) => {
-  const response = await api.get(`/api/receipts/${paymentId}`);
+export const getReceiptData = async (paymentId, language = "fr") => {
+  const response = await api.get(`/api/receipts/${paymentId}`, {
+    params: { lang: language === "ar" ? "ar" : "fr" },
+  });
   return response.data;
 };

@@ -5,6 +5,20 @@ export const getStudents = async (params) => {
   return response.data;
 };
 
+export const getStudentById = async (id) => {
+  const response = await api.get(`/api/students/${id}`);
+  return response.data;
+};
+
+export const uploadStudentPhoto = async (id, file) => {
+  const formData = new FormData();
+  formData.append("photo", file);
+  const response = await api.post(`/api/students/${id}/photo`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return response.data;
+};
+
 export const createStudent = async (payload) => {
   const response = await api.post("/api/students", payload);
   return response.data;

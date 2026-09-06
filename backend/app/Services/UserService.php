@@ -10,7 +10,7 @@ use PDOException;
 
 class UserService
 {
-    private const DEFAULT_RESET_PASSWORD = 'EduFlow@123';
+    private const DEFAULT_RESET_PASSWORD = 'OneCore@123';
 
     public function getAll(): array
     {
@@ -183,8 +183,8 @@ class UserService
         $actorRole = (string)($authUser['role'] ?? '');
         $actorId = isset($authUser['id']) ? (int)$authUser['id'] : 0;
 
-        if ($actorRole !== 'super_admin') {
-            return ['error' => 'Only super admin can reset passwords'];
+        if (!in_array($actorRole, ['super_admin', 'admin'], true)) {
+            return ['error' => 'Only administration can reset passwords'];
         }
 
         $existing = $this->findUserById($userId);
@@ -192,12 +192,21 @@ class UserService
             return ['error' => 'User not found'];
         }
 
+        $actorSchoolId = (int)($authUser['school_id'] ?? 0);
+        if ($actorRole === 'admin' && ((int)$existing['school_id'] !== $actorSchoolId || $existing['role'] === 'super_admin')) {
+            return ['error' => 'Forbidden'];
+        }
+
         if ((int)$existing['id'] === $actorId) {
             return ['error' => 'Super admin cannot reset own password from this action'];
         }
 
         $pdo = Database::connect();
-        $stmt = $pdo->prepare('UPDATE users SET password = ? WHERE id = ?');
+        $stmt = $pdo->prepare('
+            UPDATE users
+            SET password = ?, must_change_password = 1, password_changed_at = NULL, token_version = token_version + 1
+            WHERE id = ?
+        ');
         $stmt->execute([password_hash(self::DEFAULT_RESET_PASSWORD, PASSWORD_DEFAULT), $userId]);
 
         return [
@@ -212,8 +221,8 @@ class UserService
     {
         try {
             $pdo = Database::connect();
-            $stmt = $pdo->prepare('INSERT INTO users (school_id, first_name, last_name, email, password, role, status) VALUES (?, ?, ?, ?, ?, ?, ?)');
-            $stmt->execute([$schoolId, $firstName, $lastName, $email, password_hash($password, PASSWORD_DEFAULT), $role, $status]);
+            $stmt = $pdo->prepare('INSERT INTO users (school_id, first_name, last_name, email, password, role, status, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+            $stmt->execute([$schoolId, $firstName, $lastName, $email, password_hash($password, PASSWORD_DEFAULT), $role, $status, $role === 'professeur' ? 1 : 0]);
 
             return [
                 'id' => (int)$pdo->lastInsertId(),
@@ -245,7 +254,7 @@ class UserService
             if ($fallbackLocal === '') {
                 return null;
             }
-            return $fallbackLocal . '@eduflow-owner.com';
+            return $fallbackLocal . '@onecore-owner.local';
         }
 
         $school = $this->findSchool($schoolId);

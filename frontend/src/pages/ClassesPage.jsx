@@ -9,6 +9,7 @@ import { getSchools } from "../services/schoolService";
 import { getStudents, importStudents } from "../services/studentService";
 import { getSubjects, updateSubjectWeeklyHours } from "../services/subjectService";
 import useAuth from "../hooks/useAuth";
+import useI18n from "../hooks/useI18n";
 
 const defaultSchoolYear = "2026/2027";
 const schoolYearOptions = Array.from({ length: 8 }, (_, index) => {
@@ -44,6 +45,7 @@ const classGroupLabel = (item) => {
 
 export default function ClassesPage() {
   const { user } = useAuth();
+  const { t } = useI18n();
   const isSuperAdmin = user?.role === "super_admin";
   const [items, setItems] = useState([]);
   const [schools, setSchools] = useState([]);
@@ -87,7 +89,7 @@ export default function ClassesPage() {
   };
 
   useEffect(() => {
-    load().catch(() => setError("Impossible de charger les classes."));
+    load().catch(() => setError(t("classes.loadError")));
   }, [isSuperAdmin]);
 
   const submit = async (e) => {
@@ -112,17 +114,17 @@ export default function ClassesPage() {
 
       if (editingId) {
         await updateClassLevel(editingId, payload);
-        setMessage("Classe modifiee avec succes.");
+        setMessage(t("classes.updated"));
       } else {
         await createClassLevel(payload);
-        setMessage("Classe creee avec succes.");
+        setMessage(t("classes.created"));
       }
 
       setEditingId(null);
       setForm((prev) => ({ ...emptyForm, school_id: prev.school_id }));
       await load();
     } catch (err) {
-      setError(err?.response?.data?.message || "Echec d'enregistrement de classe.");
+      setError(t("classes.saveError"));
     } finally {
       setSaving(false);
     }
@@ -148,7 +150,7 @@ export default function ClassesPage() {
   };
 
   const deleteClass = async (item) => {
-    const confirmed = window.confirm(`Supprimer la classe ${item.name} ?`);
+    const confirmed = window.confirm(t("classes.confirmDelete", { name: item.name }));
     if (!confirmed) {
       return;
     }
@@ -165,10 +167,10 @@ export default function ClassesPage() {
         setSelectedClass(null);
         setClassStudents([]);
       }
-      setMessage("Classe supprimee avec succes.");
+      setMessage(t("classes.deleted"));
       await load();
     } catch (err) {
-      setError(err?.response?.data?.message || "Echec de suppression de classe.");
+      setError(t("classes.deleteError"));
     }
   };
 
@@ -191,7 +193,7 @@ export default function ClassesPage() {
       setClassStudents(Array.isArray(studentsData) ? studentsData : []);
       setClassSubjects(Array.isArray(subjectsData) ? subjectsData : []);
     } catch (err) {
-      setError(err?.response?.data?.message || "Impossible de charger les informations de cette classe.");
+      setError(t("classes.detailsError"));
     } finally {
       setClassStudentsLoading(false);
       setClassSubjectsLoading(false);
@@ -221,9 +223,9 @@ export default function ClassesPage() {
           item.id === subject.id ? { ...item, weekly_hours: result.weekly_hours } : item
         )
       );
-      setMessage("Volume horaire enregistre avec succes.");
+      setMessage(t("classes.hoursSaved"));
     } catch (err) {
-      setError(err?.response?.data?.message || "Impossible d'enregistrer le volume horaire.");
+      setError(t("classes.hoursError"));
     } finally {
       setSubjectSavingId(null);
     }
@@ -238,7 +240,7 @@ export default function ClassesPage() {
 
     if (!isValidImportFile(file)) {
       setImportFile(null);
-      setError("Format incorrect. Formats acceptes: .xlsx ou .csv.");
+      setError(t("classes.invalidFile"));
       return;
     }
 
@@ -252,7 +254,7 @@ export default function ClassesPage() {
     setImportProgress(0);
 
     if (!importFile) {
-      setError("Veuillez selectionner un fichier .xlsx ou .csv.");
+      setError(t("classes.fileRequired"));
       return;
     }
 
@@ -267,7 +269,7 @@ export default function ClassesPage() {
         setImportProgress
       );
 
-      setMessage(result.message || "Classe importee avec succes.");
+      setMessage(t("classes.imported"));
       setImportForm((prev) => ({
         ...emptyImportForm,
         school_id: prev.school_id,
@@ -278,7 +280,7 @@ export default function ClassesPage() {
       if (result.class_level_id) {
         const importedClass = {
           id: result.class_level_id,
-          name: result.class_name || "Classe importee",
+          name: result.class_name || t("classes.importedClass"),
           school_id: isSuperAdmin ? importForm.school_id : undefined,
           level_name: result.level_name || "",
           school_year: result.school_year || "",
@@ -286,9 +288,7 @@ export default function ClassesPage() {
         await showClass(importedClass);
       }
     } catch (err) {
-      const details = err?.response?.data?.details || [];
-      const suffix = Array.isArray(details) && details.length ? ` ${details.join(" ")}` : "";
-      setError((err?.response?.data?.message || "Echec de l'import de la classe.") + suffix);
+      setError(t("classes.importError"));
     } finally {
       setImportLoading(false);
     }
@@ -297,12 +297,12 @@ export default function ClassesPage() {
   return (
     <div className="admin-grid">
       <section className="panel">
-        <h2>Classes</h2>
-        <p className="muted">Creer les niveaux, puis ajouter un groupe quand il existe plusieurs classes pour le même niveau.</p>
+        <h2>{t("classes.title")}</h2>
+        <p className="muted">{t("classes.description")}</p>
       </section>
 
       <section className="panel">
-        <h3>{editingId ? "Modifier la classe" : "Nouvelle classe"}</h3>
+        <h3>{editingId ? t("classes.edit") : t("classes.new")}</h3>
         <form className="form-grid" onSubmit={submit}>
           {isSuperAdmin && (
             <select
@@ -311,7 +311,7 @@ export default function ClassesPage() {
               required
               disabled={Boolean(editingId)}
             >
-              <option value="">Choisir une ecole</option>
+              <option value="">{t("classes.chooseSchool")}</option>
               {schools.map((school) => (
                 <option key={school.id} value={school.id}>
                   {school.name}
@@ -320,13 +320,13 @@ export default function ClassesPage() {
             </select>
           )}
           <input
-            placeholder="Niveau (ex: 1ere annee)"
+            placeholder={t("classes.levelPlaceholder")}
             value={form.level_name}
             onChange={(e) => setForm({ ...form, level_name: e.target.value })}
             required
           />
           <input
-            placeholder="Classe/Groupe (ex: A, B, C)"
+            placeholder={t("classes.groupPlaceholder")}
             value={form.group_name}
             onChange={(e) => setForm({ ...form, group_name: e.target.value })}
           />
@@ -342,11 +342,11 @@ export default function ClassesPage() {
             ))}
           </select>
           <button type="submit" disabled={saving}>
-            {saving ? "Enregistrement..." : editingId ? "Mettre a jour" : "Creer la classe"}
+            {saving ? t("common.saving") : editingId ? t("common.save") : t("classes.create")}
           </button>
           {editingId && (
             <button type="button" className="secondary-btn" onClick={cancelEdit}>
-              Annuler
+              {t("common.cancel")}
             </button>
           )}
         </form>
@@ -355,7 +355,7 @@ export default function ClassesPage() {
       </section>
 
       <section className="panel">
-        <h3>Importer les eleves d'une classe</h3>
+        <h3>{t("classes.importTitle")}</h3>
         <form className="form-grid" onSubmit={handleImportSubmit}>
           {isSuperAdmin && (
             <select
@@ -363,7 +363,7 @@ export default function ClassesPage() {
               onChange={(e) => setImportForm({ ...importForm, school_id: e.target.value })}
               required
             >
-              <option value="">Choisir une ecole</option>
+              <option value="">{t("classes.chooseSchool")}</option>
               {schools.map((school) => (
                 <option key={school.id} value={school.id}>
                   {school.name}
@@ -373,9 +373,9 @@ export default function ClassesPage() {
           )}
           <div className="upload-dropzone">
             <div>
-              <p className="kpi-label">Fichier des eleves</p>
-              <p className="muted">Liste officielle avec Classe, Niveau, Annee scolaire, Nom et Prenom.</p>
-              {importFile && <p className="muted">Fichier choisi: {importFile.name}</p>}
+              <p className="kpi-label">{t("classes.studentFile")}</p>
+              <p className="muted">{t("classes.fileHelp")}</p>
+              {importFile && <p className="muted">{t("classes.selectedFile", { name: importFile.name })}</p>}
             </div>
             <input
               type="file"
@@ -390,21 +390,21 @@ export default function ClassesPage() {
             </div>
           )}
           <button type="submit" disabled={importLoading}>
-            {importLoading ? "Import..." : "Importer les eleves"}
+            {importLoading ? t("classes.importing") : t("classes.import")}
           </button>
         </form>
       </section>
 
       <section className="panel">
-        <h3>Liste des classes</h3>
+        <h3>{t("classes.list")}</h3>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Niveau</th>
-                <th>Classe</th>
-                <th>Annee scolaire</th>
-                <th>Actions</th>
+                <th>{t("common.level")}</th>
+                <th>{t("common.class")}</th>
+                <th>{t("common.schoolYear")}</th>
+                <th>{t("common.actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -420,21 +420,21 @@ export default function ClassesPage() {
                         style={{ width: "auto", padding: "6px 10px" }}
                         onClick={() => showClass(item)}
                       >
-                        Voir
+                        {t("common.view")}
                       </button>
                       <button
                         type="button"
                         style={{ width: "auto", padding: "6px 10px" }}
                         onClick={() => editClass(item)}
                       >
-                        Modifier
+                        {t("common.edit")}
                       </button>
                       <button
                         type="button"
                         style={{ width: "auto", padding: "6px 10px" }}
                         onClick={() => deleteClass(item)}
                       >
-                        Supprimer
+                        {t("common.delete")}
                       </button>
                     </div>
                   </td>
@@ -443,7 +443,7 @@ export default function ClassesPage() {
               {items.length === 0 && (
                 <tr>
                   <td colSpan="4" className="table-empty">
-                    Aucune classe trouvee.
+                    {t("classes.empty")}
                   </td>
                 </tr>
               )}
@@ -456,24 +456,24 @@ export default function ClassesPage() {
         <section className="panel">
           <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
             <div>
-              <h3>Eleves de {selectedClass.name}</h3>
+              <h3>{t("classes.studentsOf", { name: selectedClass.name })}</h3>
               <p className="muted">
-                {selectedClass.level_name || "Classe"}{selectedClass.school_year ? ` - ${selectedClass.school_year}` : ""}
+                {selectedClass.level_name || t("common.class")}{selectedClass.school_year ? ` - ${selectedClass.school_year}` : ""}
               </p>
             </div>
             <button type="button" className="secondary-btn" style={{ width: "auto" }} onClick={closeClass}>
-              Fermer
+              {t("common.close")}
             </button>
           </div>
 
           <div className="table-wrap">
-            <h4>Volumes horaires par matiere</h4>
+            <h4>{t("classes.subjectHours")}</h4>
             <table>
               <thead>
                 <tr>
-                  <th>Matiere</th>
-                  <th>Heures par semaine</th>
-                  <th>Action</th>
+                  <th>{t("common.subject")}</th>
+                  <th>{t("classes.weeklyHours")}</th>
+                  <th>{t("common.action")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -502,7 +502,7 @@ export default function ClassesPage() {
                         onClick={() => updateSubjectHours(subject)}
                         disabled={subjectSavingId === subject.id}
                       >
-                        {subjectSavingId === subject.id ? "..." : "Enregistrer"}
+                        {subjectSavingId === subject.id ? "…" : t("common.save")}
                       </button>
                     </td>
                   </tr>
@@ -510,14 +510,14 @@ export default function ClassesPage() {
                 {!classSubjectsLoading && classSubjects.length === 0 && (
                   <tr>
                     <td colSpan="3" className="table-empty">
-                      Aucune matiere active pour cette classe.
+                      {t("classes.noSubjects")}
                     </td>
                   </tr>
                 )}
                 {classSubjectsLoading && (
                   <tr>
                     <td colSpan="3" className="table-empty">
-                      Chargement...
+                      {t("common.loading")}
                     </td>
                   </tr>
                 )}
@@ -526,14 +526,14 @@ export default function ClassesPage() {
           </div>
 
           <div className="table-wrap">
-            <h4>Liste des eleves</h4>
+            <h4>{t("classes.studentsList")}</h4>
             <table>
               <thead>
                 <tr>
-                  <th>Nom</th>
-                  <th>Prenom</th>
-                  <th>Genre</th>
-                  <th>Date naissance</th>
+                  <th>{t("common.lastName")}</th>
+                  <th>{t("common.firstName")}</th>
+                  <th>{t("classes.gender")}</th>
+                  <th>{t("classes.birthDate")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -548,14 +548,14 @@ export default function ClassesPage() {
                 {!classStudentsLoading && classStudents.length === 0 && (
                   <tr>
                     <td colSpan="4" className="table-empty">
-                      Aucun eleve trouve dans cette classe.
+                      {t("classes.emptyStudents")}
                     </td>
                   </tr>
                 )}
                 {classStudentsLoading && (
                   <tr>
                     <td colSpan="4" className="table-empty">
-                      Chargement...
+                      {t("common.loading")}
                     </td>
                   </tr>
                 )}

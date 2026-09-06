@@ -13,7 +13,8 @@ class ReceiptController
     public function show(): void
     {
         $id = (int)Request::param('id', 0);
-        $result = (new ReceiptService())->generateData($id);
+        $language = Request::query('lang', 'fr') === 'ar' ? 'ar' : 'fr';
+        $result = (new ReceiptService())->generateData($id, $language);
 
         if (isset($result['error'])) {
             Response::json(['message' => $result['error']], 404);
@@ -25,7 +26,8 @@ class ReceiptController
     public function downloadPdf(): void
     {
         $id = (int)Request::param('id', 0);
-        $result = (new ReceiptService())->generatePdf($id);
+        $language = Request::query('lang', 'fr') === 'ar' ? 'ar' : 'fr';
+        $result = (new ReceiptService())->generatePdf($id, $language);
 
         if (isset($result['error'])) {
             Response::json(['message' => $result['error']], 404);

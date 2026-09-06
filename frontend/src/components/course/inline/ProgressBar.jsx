@@ -1,4 +1,7 @@
+import useI18n from "../../../hooks/useI18n";
+
 export default function ProgressBar({ value = 0 }) {
+  const { t } = useI18n();
   const progress = Math.min(100, Math.max(0, Math.round(value)));
 
   const styles = {
@@ -43,13 +46,13 @@ export default function ProgressBar({ value = 0 }) {
   return (
     <div style={styles.wrapper}>
       <div style={styles.labelRow}>
-        <span>Course progress</span>
+        <span>{t("course.progress")}</span>
         <span style={styles.value}>{progress}%</span>
       </div>
       <div
         style={styles.track}
         role="progressbar"
-        aria-label="Course progress"
+        aria-label={t("course.progress")}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={progress}

@@ -1,47 +1,29 @@
 import { useMemo, useState } from "react";
 import ProgressBar from "./ProgressBar";
-
-const defaultLessons = [
-  {
-    id: "intro",
-    title: "Course introduction",
-    duration: "8 min",
-  },
-  {
-    id: "objectives",
-    title: "Learning objectives",
-    duration: "12 min",
-  },
-  {
-    id: "core-concepts",
-    title: "Core concepts",
-    duration: "24 min",
-  },
-  {
-    id: "practice",
-    title: "Guided practice",
-    duration: "18 min",
-  },
-  {
-    id: "assessment",
-    title: "Final assessment",
-    duration: "15 min",
-  },
-];
+import useI18n from "../../../hooks/useI18n";
 
 export default function CourseView({
-  title = "EduFlow Course",
-  description = "Track each lesson as learners move through the course.",
-  lessons = defaultLessons,
+  title,
+  description,
+  lessons,
 }) {
+  const { t } = useI18n();
+  const defaultLessons = useMemo(() => [
+    { id: "intro", title: t("course.lessons.intro"), duration: "8 min" },
+    { id: "objectives", title: t("course.lessons.objectives"), duration: "12 min" },
+    { id: "core-concepts", title: t("course.lessons.coreConcepts"), duration: "24 min" },
+    { id: "practice", title: t("course.lessons.practice"), duration: "18 min" },
+    { id: "assessment", title: t("course.lessons.assessment"), duration: "15 min" },
+  ], [t]);
+  const displayedLessons = lessons || defaultLessons;
   const [completedLessons, setCompletedLessons] = useState([]);
 
   const progress = useMemo(() => {
-    if (!lessons.length) return 0;
-    return (completedLessons.length / lessons.length) * 100;
-  }, [completedLessons.length, lessons.length]);
+    if (!displayedLessons.length) return 0;
+    return (completedLessons.length / displayedLessons.length) * 100;
+  }, [completedLessons.length, displayedLessons.length]);
 
-  const isComplete = lessons.length > 0 && completedLessons.length === lessons.length;
+  const isComplete = displayedLessons.length > 0 && completedLessons.length === displayedLessons.length;
 
   const toggleLesson = (lessonId) => {
     setCompletedLessons((current) =>
@@ -190,20 +172,20 @@ export default function CourseView({
     <main style={styles.page}>
       <section style={styles.shell}>
         <header style={styles.header}>
-          <span style={styles.eyebrow}>Course checklist</span>
-          <h1 style={styles.title}>{title}</h1>
-          <p style={styles.description}>{description}</p>
+          <span style={styles.eyebrow}>{t("course.checklist")}</span>
+          <h1 style={styles.title}>{title || t("course.title")}</h1>
+          <p style={styles.description}>{description || t("course.description")}</p>
         </header>
 
         <div style={styles.panel}>
           <ProgressBar value={progress} />
 
           <div style={styles.banner} role="status">
-            Success! Every lesson is complete.
+            {t("course.success")}
           </div>
 
-          <ul style={styles.lessonList} aria-label="Course lessons">
-            {lessons.map((lesson, index) => {
+          <ul style={styles.lessonList} aria-label={t("course.lessonsLabel")}>
+            {displayedLessons.map((lesson, index) => {
               const checked = completedLessons.includes(lesson.id);
 
               return (
@@ -228,7 +210,7 @@ export default function CourseView({
                       ...(checked ? styles.completedBadge : {}),
                     }}
                   >
-                    {checked ? "Done" : "Pending"}
+                    {checked ? t("course.completed") : t("course.pending")}
                   </span>
                 </li>
               );
@@ -237,7 +219,7 @@ export default function CourseView({
 
           <div style={styles.actions}>
             <button type="button" onClick={resetProgress} style={styles.button}>
-              Reset progress
+              {t("course.reset")}
             </button>
           </div>
         </div>

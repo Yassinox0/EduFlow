@@ -1,20 +1,25 @@
 import { useMemo, useState } from "react";
 import { SCHOOL_YEAR_MONTH_OPTIONS } from "../config/schoolOptions";
 import { getUnpaidMonthlyFees } from "../services/monthlyFeeService";
+import useI18n from "../hooks/useI18n";
 
-const formatMoney = (value) =>
-  new Intl.NumberFormat("fr-MA", { style: "currency", currency: "MAD" }).format(
+const formatMoney = (value, language) =>
+  new Intl.NumberFormat(language === "ar" ? "ar-MA" : "fr-MA", { style: "currency", currency: "MAD" }).format(
     Number(value || 0)
   );
 
-const statusLabel = (value) => {
-  if (value === "PAID") return "Paye";
-  if (value === "PARTIAL") return "Partiel";
-  if (value === "UNPAID") return "Impaye";
+const formatDate = (value, language) =>
+  value ? new Intl.DateTimeFormat(language === "ar" ? "ar-MA" : "fr-MA").format(new Date(value)) : "-";
+
+const statusLabel = (value, t) => {
+  if (value === "PAID") return t("statuses.paid");
+  if (value === "PARTIAL") return t("statuses.partial");
+  if (value === "UNPAID") return t("statuses.unpaid");
   return value || "-";
 };
 
 export default function UnpaidPage() {
+  const { language, t } = useI18n();
   const [items, setItems] = useState([]);
   const [filters, setFilters] = useState({
     search: "",
@@ -50,7 +55,7 @@ export default function UnpaidPage() {
     } catch (err) {
       setItems([]);
       setFiltersApplied(false);
-      setError(err?.response?.data?.message || "Impossible de charger les impayes.");
+      setError(t("unpaid.loadError"));
     } finally {
       setLoading(false);
     }
@@ -66,15 +71,15 @@ export default function UnpaidPage() {
   return (
     <div className="admin-grid">
       <section className="panel">
-        <h2>Impayes</h2>
-        <p className="muted">Suivi des soldes restants et du retard de paiement.</p>
+        <h2>{t("unpaid.title")}</h2>
+        <p className="muted">{t("unpaid.description")}</p>
       </section>
 
       <section className="kpi-grid one-col">
         <article className="panel kpi">
-          <p className="kpi-label">Total a recouvrer</p>
-          <h2>{formatMoney(totalRemaining)}</h2>
-          <p className="muted">Montant cumule de toutes les mensualites non reglees</p>
+          <p className="kpi-label">{t("unpaid.totalToRecover")}</p>
+          <h2>{formatMoney(totalRemaining, language)}</h2>
+          <p className="muted">{t("unpaid.totalHelp")}</p>
         </article>
       </section>
 
@@ -82,17 +87,17 @@ export default function UnpaidPage() {
         {error && <p className="error-text">{error}</p>}
         <form className="filters-grid" onSubmit={applyFilters}>
           <input
-            placeholder="Rechercher un eleve"
+            placeholder={t("monthlyFees.searchStudent")}
             value={filters.search}
             onChange={(e) => setFilters({ ...filters, search: e.target.value })}
           />
           <input
-            placeholder="Filtrer par niveau"
+            placeholder={t("monthlyFees.filterLevel")}
             value={filters.class_level}
             onChange={(e) => setFilters({ ...filters, class_level: e.target.value })}
           />
           <input
-            placeholder="Filtrer par classe/groupe"
+            placeholder={t("monthlyFees.filterClass")}
             value={filters.class_name}
             onChange={(e) => setFilters({ ...filters, class_name: e.target.value })}
           />
@@ -100,39 +105,39 @@ export default function UnpaidPage() {
             value={filters.month_label}
             onChange={(e) => setFilters({ ...filters, month_label: e.target.value })}
           >
-            <option value="">Tous les mois</option>
+            <option value="">{t("unpaid.allMonths")}</option>
             {SCHOOL_YEAR_MONTH_OPTIONS.map((month) => (
-              <option key={month.value} value={month.value}>{month.label}</option>
+              <option key={month.value} value={month.value}>{t(`months.${month.value}`)}</option>
             ))}
           </select>
           <input
             type="number"
-            placeholder="Annee"
+            placeholder={t("common.year")}
             value={filters.year_value}
             onChange={(e) => setFilters({ ...filters, year_value: e.target.value })}
           />
           <button type="button" className="secondary-btn" onClick={resetFilters}>
-            Réinitialiser
+            {t("common.reset")}
           </button>
           <button type="submit" disabled={loading}>
-            {loading ? "Chargement..." : "Appliquer"}
+            {loading ? t("common.loading") : t("common.apply")}
           </button>
         </form>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Eleve</th>
-                <th>Niveau</th>
-                <th>Classe</th>
-                <th>Parent</th>
-                <th>Telephone</th>
-                <th>Mois</th>
-                <th>Annee</th>
-                <th>Reste</th>
-                <th>Echeance</th>
-                <th>Statut</th>
-                <th>Jours de retard</th>
+                <th>{t("common.student")}</th>
+                <th>{t("common.level")}</th>
+                <th>{t("common.class")}</th>
+                <th>{t("common.parent")}</th>
+                <th>{t("common.phone")}</th>
+                <th>{t("monthlyFees.month")}</th>
+                <th>{t("common.year")}</th>
+                <th>{t("monthlyFees.remaining")}</th>
+                <th>{t("unpaid.dueDate")}</th>
+                <th>{t("common.status")}</th>
+                <th>{t("unpaid.daysLate")}</th>
               </tr>
             </thead>
             <tbody>
@@ -145,18 +150,18 @@ export default function UnpaidPage() {
                   <td>{item.class_group_name || "-"}</td>
                   <td>{item.parent_name}</td>
                   <td>{item.phone || "-"}</td>
-                  <td>{item.month_label}</td>
+                  <td>{t(`months.${String(item.month_label).padStart(2, "0")}`)}</td>
                   <td>{item.year_value}</td>
-                  <td>{formatMoney(item.remaining_amount)}</td>
-                  <td>{item.due_date || "-"}</td>
-                  <td>{statusLabel(item.status)}</td>
+                  <td>{formatMoney(item.remaining_amount, language)}</td>
+                  <td>{formatDate(item.due_date, language)}</td>
+                  <td>{statusLabel(item.status, t)}</td>
                   <td>{item.days_late ?? "-"}</td>
                 </tr>
               ))}
               {items.length === 0 && (
                 <tr>
                   <td colSpan="11" className="table-empty">
-                    {filtersApplied ? "Aucun impaye trouve." : "Appliquez un filtre pour afficher les impayes."}
+                    {filtersApplied ? t("unpaid.emptyFiltered") : t("unpaid.emptyInitial")}
                   </td>
                 </tr>
               )}

@@ -56,4 +56,9 @@ class Request
         $params = self::get('route_params', []);
         return $params[$key] ?? $default;
     }
+
+    public static function query(string $key, mixed $default = null): mixed
+    {
+        return $_GET[$key] ?? $default;
+    }
 }

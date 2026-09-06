@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import useAuth from "../hooks/useAuth";
+import useI18n from "../hooks/useI18n";
 import { createUser, deleteUser, getUsers, resetUserPassword, updateUser } from "../services/userService";
 import { getCurrentSchool, getSchools } from "../services/schoolService";
 
@@ -13,15 +14,9 @@ const EMPTY_FORM = {
   status: "ACTIVE",
 };
 
-const roleLabel = {
-  user: "Utilisateur",
-  professeur: "Professeur",
-  admin: "Admin",
-  super_admin: "Super admin",
-};
-
 export default function AdminPage() {
   const { user } = useAuth();
+  const { t } = useI18n();
   const isSuperAdmin = user?.role === "super_admin";
   const isAdmin = user?.role === "admin";
 
@@ -68,7 +63,7 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
-    load().catch(() => setError("Impossible de charger les donnees d'administration."));
+    load().catch(() => setError(t("administration.loadError")));
   }, [isAdmin, isSuperAdmin]);
 
   const handleSubmit = async (e) => {
@@ -101,17 +96,17 @@ export default function AdminPage() {
 
       if (isEditing) {
         await updateUser(editingId, payload);
-        setMessage("Utilisateur modifie avec succes.");
+        setMessage(t("administration.updated"));
       } else {
         const created = await createUser(payload);
-        setMessage(`Utilisateur cree: ${created.email}`);
+        setMessage(t("administration.created", { email: created.email }));
       }
 
       setEditingId(null);
       setForm((prev) => ({ ...EMPTY_FORM, school_id: prev.school_id || form.school_id }));
       await load();
     } catch (err) {
-      setError(err?.response?.data?.message || "Echec de sauvegarde utilisateur.");
+      setError(t("administration.saveError"));
     }
   };
 
@@ -137,7 +132,7 @@ export default function AdminPage() {
   };
 
   const handleDelete = async (targetUser) => {
-    if (!window.confirm(`Supprimer le compte ${targetUser.email} ?`)) {
+    if (!window.confirm(t("administration.confirmDelete", { email: targetUser.email }))) {
       return;
     }
 
@@ -147,13 +142,13 @@ export default function AdminPage() {
 
     try {
       await deleteUser(targetUser.id);
-      setMessage("Utilisateur supprime avec succes.");
+      setMessage(t("administration.deleted"));
       if (editingId === targetUser.id) {
         cancelEdit();
       }
       await load();
     } catch (err) {
-      setError(err?.response?.data?.message || "Echec de suppression utilisateur.");
+      setError(t("administration.deleteError"));
     }
   };
 
@@ -164,17 +159,17 @@ export default function AdminPage() {
 
     try {
       const result = await resetUserPassword(targetUser.id);
-      setResetMessage(`Mot de passe reinitialise pour ${result.email}: ${result.default_password}`);
+      setResetMessage(t("administration.passwordReset", { email: result.email, password: result.default_password }));
     } catch (err) {
-      setError(err?.response?.data?.message || "Echec de reinitialisation du mot de passe.");
+      setError(t("administration.resetError"));
     }
   };
 
   if (!isSuperAdmin && !isAdmin) {
     return (
       <section className="panel">
-        <h2>Administration</h2>
-        <p className="muted">Acces reserve aux administrateurs autorises.</p>
+        <h2>{t("administration.title")}</h2>
+        <p className="muted">{t("administration.accessDenied")}</p>
       </section>
     );
   }
@@ -182,34 +177,34 @@ export default function AdminPage() {
   return (
     <div className="admin-grid">
       <section className="panel hero-panel">
-        <p className="brand-kicker">Administration</p>
-        <h2>{isSuperAdmin ? "Annuaire global des utilisateurs" : "Annuaire de votre ecole"}</h2>
+        <p className="brand-kicker">{t("administration.title")}</p>
+        <h2>{isSuperAdmin ? t("administration.globalDirectory") : t("administration.schoolDirectory")}</h2>
         <p className="muted">
           {isSuperAdmin
-            ? "Creation et gestion des comptes multi-ecoles avec controle des roles."
-            : "Gestion des comptes utilisateurs de votre ecole uniquement."}
+            ? t("administration.globalDescription")
+            : t("administration.schoolDescription")}
         </p>
       </section>
 
       <section className="panel">
-        <h3>{isEditing ? "Modifier un utilisateur" : "Creer un utilisateur"}</h3>
+        <h3>{isEditing ? t("administration.editUser") : t("administration.createUser")}</h3>
         <form className="form-grid" onSubmit={handleSubmit}>
-          <input placeholder="Prenom" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
-          <input placeholder="Nom" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} required />
+          <input placeholder={t("common.firstName")} value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
+          <input placeholder={t("common.lastName")} value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} required />
 
           {isSuperAdmin && (
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-              <option value="user">Utilisateur</option>
-              <option value="professeur">Professeur</option>
-              <option value="admin">Admin</option>
-              <option value="super_admin">Super admin</option>
+              <option value="user">{t("roles.user")}</option>
+              <option value="professeur">{t("roles.professeur")}</option>
+              <option value="admin">{t("roles.admin")}</option>
+              <option value="super_admin">{t("roles.super_admin")}</option>
             </select>
           )}
 
           {!isSuperAdmin && (
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-              <option value="user">Utilisateur</option>
-              <option value="professeur">Professeur</option>
+              <option value="user">{t("roles.user")}</option>
+              <option value="professeur">{t("roles.professeur")}</option>
             </select>
           )}
 
@@ -225,31 +220,31 @@ export default function AdminPage() {
 
           {!isEditing && (
             <input
-              placeholder="Prefixe email (ex: salma.alaoui)"
+              placeholder={t("administration.emailPrefix")}
               value={form.email_local_part}
               onChange={(e) => setForm({ ...form, email_local_part: e.target.value })}
             />
           )}
           {!isEditing && form.role !== "super_admin" && (
-            <p className="muted">Apercu email: {(form.email_local_part || "user") + "@" + emailDomain}</p>
+            <p className="muted">{t("administration.emailPreview", { email: (form.email_local_part || "user") + "@" + emailDomain })}</p>
           )}
 
           <input
             type="password"
-            placeholder={isEditing ? "Nouveau mot de passe (optionnel)" : "Mot de passe"}
+            placeholder={isEditing ? t("administration.newPasswordOptional") : t("common.password")}
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
             required={!isEditing}
           />
           <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-            <option value="ACTIVE">Actif</option>
-            <option value="INACTIVE">Inactif</option>
+            <option value="ACTIVE">{t("statuses.active")}</option>
+            <option value="INACTIVE">{t("statuses.inactive")}</option>
           </select>
           <div className="form-actions">
-            <button type="submit">{isEditing ? "Enregistrer" : "Creer l'utilisateur"}</button>
+            <button type="submit">{isEditing ? t("common.save") : t("administration.createUser")}</button>
             {isEditing && (
               <button type="button" className="secondary-btn" onClick={cancelEdit}>
-                Annuler
+                {t("common.cancel")}
               </button>
             )}
           </div>
@@ -260,18 +255,18 @@ export default function AdminPage() {
       </section>
 
       <section className="panel">
-        <h3>Utilisateurs ({users.length})</h3>
+        <h3>{t("administration.usersCount", { count: users.length })}</h3>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Nom complet</th>
-                <th>Email</th>
-                <th>Role</th>
-                <th>Statut</th>
-                <th>Ecole</th>
-                <th>Actions</th>
+                <th>{t("common.id")}</th>
+                <th>{t("common.fullName")}</th>
+                <th>{t("common.email")}</th>
+                <th>{t("common.role")}</th>
+                <th>{t("common.status")}</th>
+                <th>{t("common.school")}</th>
+                <th>{t("common.actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -284,8 +279,8 @@ export default function AdminPage() {
                     <td>{index + 1}</td>
                     <td>{item.first_name} {item.last_name}</td>
                     <td>{item.email}</td>
-                    <td>{roleLabel[item.role] || item.role}</td>
-                    <td>{item.status === "ACTIVE" ? "Actif" : "Inactif"}</td>
+                    <td>{t(`roles.${item.role}`)}</td>
+                    <td>{item.status === "ACTIVE" ? t("statuses.active") : t("statuses.inactive")}</td>
                     <td>{item.school_name || "-"}</td>
                     <td>
                       <div className="table-actions">
@@ -295,7 +290,7 @@ export default function AdminPage() {
                           onClick={() => handleEdit(item)}
                           disabled={!canEdit}
                         >
-                          Modifier
+                          {t("common.edit")}
                         </button>
                         {isSuperAdmin && (
                           <button
@@ -303,7 +298,7 @@ export default function AdminPage() {
                             onClick={() => handleResetPassword(item)}
                             disabled={item.role === "super_admin"}
                           >
-                            Reset MDP
+                            {t("administration.resetPassword")}
                           </button>
                         )}
                         {isSuperAdmin && (
@@ -313,7 +308,7 @@ export default function AdminPage() {
                             onClick={() => handleDelete(item)}
                             disabled={!canDelete}
                           >
-                            Supprimer
+                            {t("common.delete")}
                           </button>
                         )}
                       </div>
@@ -323,7 +318,7 @@ export default function AdminPage() {
               })}
               {!users.length && (
                 <tr>
-                  <td colSpan="7" className="table-empty">Aucun utilisateur trouve.</td>
+                  <td colSpan="7" className="table-empty">{t("administration.empty")}</td>
                 </tr>
               )}
             </tbody>
