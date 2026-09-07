@@ -135,26 +135,53 @@ Regles:
   - paiements recents,
   - top impayes.
 
-## 10) Partager la base a une autre personne
-### Methode recommandee
-Partager le repo + les 2 scripts SQL (`01_schema.sql`, `02_data_dump.sql`).
+## 10) Synchroniser la base locale avec upstream
 
-### Methode snapshot container (exact)
-Creer une image a partir du container:
+Cette branche conserve les fonctionnalites locales (dossiers eleves, familles,
+charges et personnel) et integre les migrations du depot
+`https://github.com/Yassinox0/EduFlow`, revision
+`fbaadeb2351a8be2a78490ab45ef8b09232dfd43`.
+
+Depuis la racine du projet, avec PHP disponible (macOS, Linux ou Windows):
+
 ```bash
-docker commit salma-mysql eduflow-mysql:snapshot
+php backend/bin/sync-database.php --status
+php backend/bin/sync-database.php
+php backend/bin/sync-database.php --status
 ```
 
-Exporter l'image:
+Faire une sauvegarde MySQL avant la premiere execution. Les sauvegardes locales
+restent dans `backend/storage/backups/`, ignore par Git. Ne pas reimporter
+`01_schema.sql` ou `02_data_dump.sql` pour synchroniser une base existante.
+
+Le script ajoute les champs attendus par upstream tout en conservant `label`,
+`starts_on`, `ends_on` et les statuts scolaires locaux. Des triggers maintiennent
+les champs equivalents des annees scolaires dans les deux sens. Les inscriptions
+creees pour les eleves `REGISTERED` sont actives. Les relations parents existantes
+sont conservees sans rejouer l'ancien remplissage depuis le nom du parent.
+
+Les migrations upstream sont conservees sans modification dans
+`backend/storage/upstream-migrations/`. Le registre `schema_migrations` enregistre
+leurs empreintes; `local_sync_steps` suit l'adaptation locale. Les anciens scripts
+locaux de `backend/storage/migrations/` ne sont pas rejoues automatiquement.
+Ne pas appeler directement `migrate-upstream.php` sur une base locale non adaptee.
+
+Le script utilise `backend/.env`. Pour une copie de test sur macOS/Linux:
+
 ```bash
-docker save -o eduflow-mysql-snapshot.tar eduflow-mysql:snapshot
+DB_NAME=eduflow_sync_test php backend/bin/sync-database.php
 ```
 
-Chez l'autre personne:
-```bash
-docker load -i eduflow-mysql-snapshot.tar
-docker run -d --name salma-mysql -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=salma_project -p 3307:3306 eduflow-mysql:snapshot
-```
+Les migrations importees ajoutent les inscriptions, affectations des professeurs,
+recus, notes et absences. Elles renomment egalement les anciens comptes super admin
+`owner@eduflow.com` et `superadmin@eduflow.com` en `owner@onecore.local` et
+`superadmin@onecore.local`, et marquent les comptes professeurs comme devant changer
+leur mot de passe. Les mots de passe existants sont conserves.
+
+Cette commande applique la revision importee ci-dessus; elle ne telecharge pas de
+nouvelles migrations. Lors d'une prochaine mise a jour upstream, verifier les
+nouveaux fichiers sur une copie de la base avant de les integrer. Aucun jeu de
+donnees de demonstration n'est importe pendant cette synchronisation.
 
 ## 11) Depannage rapide
 - Login "Identifiants invalides ou API indisponible":
@@ -162,6 +189,6 @@ docker run -d --name salma-mysql -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=s
   - verifier `VITE_API_URL`,
   - verifier que MySQL tourne.
 - Erreurs SQL / tables manquantes:
-  - reimporter `01_schema.sql`, puis `02_data_dump.sql`.
+  - executer `php backend/bin/sync-database.php --status`, puis `php backend/bin/sync-database.php`.
 - Port MySQL occupe:
   - changer `-p 3307:3306` et `DB_PORT` en consequence.
