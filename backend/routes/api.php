@@ -8,6 +8,7 @@ use App\Controllers\AlertController;
 use App\Controllers\ClassLevelController;
 use App\Controllers\MonthlyFeeController;
 use App\Controllers\PaymentController;
+use App\Controllers\PaymentDocumentController;
 use App\Controllers\PaymentMethodController;
 use App\Controllers\ReceiptController;
 use App\Controllers\SchoolController;
@@ -23,6 +24,9 @@ use App\Controllers\StudentDocumentController;
 use App\Controllers\LevelFeeController;
 use App\Controllers\AcademicYearController;
 use App\Controllers\PermissionController;
+use App\Controllers\ChargeCategoryController;
+use App\Controllers\StudentChargeController;
+use App\Controllers\DiscountController;
 use App\Core\Request;
 use App\Core\Router;
 use App\Middleware\AuthMiddleware;
@@ -85,8 +89,12 @@ Router::add('POST', '/api/payments', [new PaymentController(), 'store'], [AuthMi
 Router::add('GET', '/api/payments/{id}', [new PaymentController(), 'show'], [AuthMiddleware::class, new PermissionMiddleware('payments.view')]);
 Router::add('PUT', '/api/payments/{id}', [new PaymentController(), 'update'], [AuthMiddleware::class, new PermissionMiddleware('payments.update')]);
 Router::add('DELETE', '/api/payments/{id}', [new PaymentController(), 'delete'], [AuthMiddleware::class, new PermissionMiddleware('payments.delete')]);
-Router::add('GET', '/api/receipts/{id}', [new ReceiptController(), 'show'], [AuthMiddleware::class, new PermissionMiddleware('payments.export')]);
-Router::add('GET', '/api/receipts/{id}/pdf', [new ReceiptController(), 'downloadPdf'], [AuthMiddleware::class, new PermissionMiddleware('payments.export')]);
+Router::add('GET', '/api/receipts/{id}', [new ReceiptController(), 'show'], [AuthMiddleware::class, new PermissionMiddleware('payments.view'), new PermissionMiddleware('payments.export')]);
+Router::add('GET', '/api/receipts/{id}/pdf', [new ReceiptController(), 'downloadPdf'], [AuthMiddleware::class, new PermissionMiddleware('payments.view'), new PermissionMiddleware('payments.export')]);
+Router::add('GET', '/api/payment-documents/monthly', [new PaymentDocumentController(), 'monthly'], [AuthMiddleware::class, new PermissionMiddleware('payments.view'), new PermissionMiddleware('payments.export')]);
+Router::add('GET', '/api/payment-documents/students/{id}', [new PaymentDocumentController(), 'student'], [AuthMiddleware::class, new PermissionMiddleware('payments.view'), new PermissionMiddleware('payments.export')]);
+Router::add('GET', '/api/payment-documents/families/{id}', [new PaymentDocumentController(), 'family'], [AuthMiddleware::class, new PermissionMiddleware('payments.view'), new PermissionMiddleware('payments.export')]);
+Router::add('GET', '/api/payment-documents/unpaid', [new PaymentDocumentController(), 'unpaid'], [AuthMiddleware::class, new PermissionMiddleware('payments.view'), new PermissionMiddleware('payments.export')]);
 Router::add('GET', '/api/payment-methods', [new PaymentMethodController(), 'index'], [AuthMiddleware::class]);
 Router::add('POST', '/api/payment-methods', [new PaymentMethodController(), 'store'], [AuthMiddleware::class, new RoleMiddleware('super_admin')]);
 Router::add('GET', '/api/payment-methods/{id}', [new PaymentMethodController(), 'show'], [AuthMiddleware::class]);
@@ -99,6 +107,27 @@ Router::add('GET', '/api/monthly-fees/unpaid', [new MonthlyFeeController(), 'unp
 Router::add('GET', '/api/monthly-fees/{id}', [new MonthlyFeeController(), 'show'], [AuthMiddleware::class, new PermissionMiddleware('monthly_fees.view')]);
 Router::add('PUT', '/api/monthly-fees/{id}', [new MonthlyFeeController(), 'update'], [AuthMiddleware::class, new PermissionMiddleware('monthly_fees.manage')]);
 Router::add('DELETE', '/api/monthly-fees/{id}', [new MonthlyFeeController(), 'delete'], [AuthMiddleware::class, new PermissionMiddleware('monthly_fees.manage')]);
+
+Router::add('GET', '/api/charge-categories', [new ChargeCategoryController(), 'index'], [AuthMiddleware::class, new PermissionMiddleware('charges.view')]);
+Router::add('POST', '/api/charge-categories', [new ChargeCategoryController(), 'store'], [AuthMiddleware::class, new PermissionMiddleware('charges.manage')]);
+Router::add('GET', '/api/charge-categories/{id}', [new ChargeCategoryController(), 'show'], [AuthMiddleware::class, new PermissionMiddleware('charges.view')]);
+Router::add('PUT', '/api/charge-categories/{id}', [new ChargeCategoryController(), 'update'], [AuthMiddleware::class, new PermissionMiddleware('charges.manage')]);
+Router::add('PATCH', '/api/charge-categories/{id}/archive', [new ChargeCategoryController(), 'archive'], [AuthMiddleware::class, new PermissionMiddleware('charges.manage')]);
+Router::add('GET', '/api/student-charges', [new StudentChargeController(), 'index'], [AuthMiddleware::class, new PermissionMiddleware('charges.view')]);
+Router::add('POST', '/api/student-charges/preview', [new StudentChargeController(), 'preview'], [AuthMiddleware::class, new PermissionMiddleware('charges.manage')]);
+Router::add('POST', '/api/student-charges/bulk', [new StudentChargeController(), 'bulk'], [AuthMiddleware::class, new PermissionMiddleware('charges.manage')]);
+Router::add('POST', '/api/student-charges', [new StudentChargeController(), 'store'], [AuthMiddleware::class, new PermissionMiddleware('charges.manage')]);
+Router::add('PATCH', '/api/student-charges/{id}/cancel', [new StudentChargeController(), 'cancel'], [AuthMiddleware::class, new PermissionMiddleware('charges.manage')]);
+Router::add('GET', '/api/student-charges/{id}/history', [new StudentChargeController(), 'history'], [AuthMiddleware::class, new PermissionMiddleware('charges.view')]);
+Router::add('GET', '/api/student-charges/{id}', [new StudentChargeController(), 'show'], [AuthMiddleware::class, new PermissionMiddleware('charges.view')]);
+Router::add('PUT', '/api/student-charges/{id}', [new StudentChargeController(), 'update'], [AuthMiddleware::class, new PermissionMiddleware('charges.manage')]);
+Router::add('GET', '/api/discounts', [new DiscountController(), 'index'], [AuthMiddleware::class, new PermissionMiddleware('charges.view')]);
+Router::add('POST', '/api/discounts/preview', [new DiscountController(), 'preview'], [AuthMiddleware::class, new PermissionMiddleware('discounts.manage')]);
+Router::add('POST', '/api/discounts', [new DiscountController(), 'store'], [AuthMiddleware::class, new PermissionMiddleware('discounts.manage')]);
+Router::add('GET', '/api/discounts/{id}/history', [new DiscountController(), 'history'], [AuthMiddleware::class, new PermissionMiddleware('charges.view')]);
+Router::add('PATCH', '/api/discounts/{id}/cancel', [new DiscountController(), 'cancel'], [AuthMiddleware::class, new PermissionMiddleware('discounts.manage')]);
+Router::add('POST', '/api/discounts/{id}/replace', [new DiscountController(), 'replace'], [AuthMiddleware::class, new PermissionMiddleware('discounts.manage')]);
+Router::add('GET', '/api/discounts/{id}', [new DiscountController(), 'show'], [AuthMiddleware::class, new PermissionMiddleware('charges.view')]);
 Router::add('GET', '/api/dashboard', [new DashboardController(), 'index'], [AuthMiddleware::class]);
 Router::add('GET', '/api/dashboard/alerts', [new AlertController(), 'index'], [AuthMiddleware::class]);
 Router::add('GET', '/api/school/dashboard', [new DashboardController(), 'index'], [AuthMiddleware::class]);
@@ -134,6 +163,6 @@ Router::add('POST', '/api/users/{id}/reset-password', [new UserController(), 're
 Router::add('GET', '/api/receipts', function (): void {
     $paymentId = (int)($_GET['payment_id'] ?? 0);
     (new ReceiptController())->show($paymentId);
-}, [AuthMiddleware::class, new PermissionMiddleware('payments.export')]);
+}, [AuthMiddleware::class, new PermissionMiddleware('payments.view'), new PermissionMiddleware('payments.export')]);
 
 Router::dispatch(Request::method(), Request::uri());

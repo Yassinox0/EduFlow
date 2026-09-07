@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { MONTH_OPTIONS, normalizeSearch } from "../config/schoolOptions";
 import { getPaymentMethods } from "../services/paymentMethodService";
 import { createPayment, getPayments } from "../services/paymentService";
+import { downloadReceiptPdf } from "../services/receiptService";
+import { downloadMonthlyPaymentsPdf } from "../services/paymentDocumentService";
 import { getStudents } from "../services/studentService";
+import useAuth from "../hooks/useAuth";
 
 const formatMoney = (value) =>
   new Intl.NumberFormat("fr-MA", { style: "currency", currency: "MAD" }).format(
@@ -28,6 +31,7 @@ const statusLabel = (value) => {
 };
 
 export default function PaymentsPage() {
+  const { can } = useAuth();
   const [payments, setPayments] = useState([]);
   const [students, setStudents] = useState([]);
   const [paymentMethods, setPaymentMethods] = useState([]);
@@ -40,12 +44,14 @@ export default function PaymentsPage() {
     class_level: "",
     class_name: "",
     month_label: "",
+    year_value: String(currentDate.getFullYear()),
     status: "",
   });
   const [loading, setLoading] = useState(false);
   const [studentLoading, setStudentLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [documentLoading, setDocumentLoading] = useState("");
 
   const loadData = async () => {
     const [paymentsData, methodsData] = await Promise.all([
@@ -92,6 +98,7 @@ export default function PaymentsPage() {
       matchesText(payment.class_level_name, filters.class_level) &&
       matchesText(payment.class_name, filters.class_name) &&
       (!filters.month_label || String(payment.month_label).padStart(2, "0") === filters.month_label) &&
+      (!filters.year_value || String(payment.year_value) === String(filters.year_value)) &&
       (!filters.status || payment.payment_status === filters.status)
     ));
   }, [filters, payments]);
@@ -155,6 +162,22 @@ export default function PaymentsPage() {
     } finally {
       setStudentLoading(false);
     }
+  };
+
+  const downloadReceipt = async (paymentId, reprint = false) => {
+    if (documentLoading) return;
+    setDocumentLoading(`receipt-${paymentId}`); setError("");
+    try { await downloadReceiptPdf(paymentId); setMessage(reprint ? "Reçu réimprimé avec succès." : "Reçu téléchargé avec succès."); }
+    catch (err) { setError(err?.response?.data?.message || err?.message || "Impossible de générer le reçu PDF."); }
+    finally { setDocumentLoading(""); }
+  };
+
+  const exportMonth = async () => {
+    if (!filters.month_label || !filters.year_value || documentLoading) { setError("Sélectionnez un mois et une année avant l’export PDF."); return; }
+    setDocumentLoading("monthly"); setError("");
+    try { await downloadMonthlyPaymentsPdf({ month_label: filters.month_label, year_value: filters.year_value }); setMessage("Export PDF des paiements téléchargé."); }
+    catch (err) { setError(err?.response?.data?.message || err?.message || "Impossible d’exporter les paiements."); }
+    finally { setDocumentLoading(""); }
   };
 
   return (
@@ -296,6 +319,7 @@ export default function PaymentsPage() {
               <option key={month.value} value={month.value}>{month.label}</option>
             ))}
           </select>
+          <input type="number" min="2000" max="2100" placeholder="Année" value={filters.year_value} onChange={(e) => setFilters({ ...filters, year_value: e.target.value })} />
           <select
             value={filters.status}
             onChange={(e) => setFilters({ ...filters, status: e.target.value })}
@@ -308,10 +332,11 @@ export default function PaymentsPage() {
           <button
             type="button"
             className="secondary-btn"
-            onClick={() => setFilters({ last_name: "", first_name: "", class_level: "", class_name: "", month_label: "", status: "" })}
+            onClick={() => setFilters({ last_name: "", first_name: "", class_level: "", class_name: "", month_label: "", year_value: String(currentDate.getFullYear()), status: "" })}
           >
             Réinitialiser les filtres
           </button>
+          {can("payments.view") && can("payments.export") && <button type="button" disabled={Boolean(documentLoading)} onClick={exportMonth}>{documentLoading === "monthly" ? "Export en cours…" : "Exporter les paiements du mois en PDF"}</button>}
         </div>
       </section>
 
@@ -329,7 +354,7 @@ export default function PaymentsPage() {
                 <th>Montant</th>
                 <th>Date</th>
                 <th>Mode</th>
-                <th>Statut</th>
+                <th>Statut</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -347,11 +372,12 @@ export default function PaymentsPage() {
                   <td>{payment.payment_date}</td>
                   <td>{payment.payment_method_label || payment.payment_method}</td>
                   <td>{statusLabel(payment.payment_status)}</td>
+                  <td>{can("payments.view") && can("payments.export") && <div className="table-actions"><button type="button" className="secondary-btn" disabled={Boolean(documentLoading)} onClick={() => downloadReceipt(payment.id)}>{documentLoading === `receipt-${payment.id}` ? "Génération…" : "Télécharger le reçu PDF"}</button><button type="button" className="secondary-btn" disabled={Boolean(documentLoading)} onClick={() => downloadReceipt(payment.id, true)}>Réimprimer le reçu</button></div>}</td>
                 </tr>
               ))}
               {filteredPayments.length === 0 && (
                 <tr>
-                  <td colSpan="10" className="table-empty">
+                  <td colSpan="11" className="table-empty">
                     Aucun paiement trouve.
                   </td>
                 </tr>

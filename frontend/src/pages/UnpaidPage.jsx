@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { SCHOOL_YEAR_MONTH_OPTIONS } from "../config/schoolOptions";
 import { getUnpaidMonthlyFees } from "../services/monthlyFeeService";
+import { downloadUnpaidPdf } from "../services/paymentDocumentService";
+import useAuth from "../hooks/useAuth";
 
 const formatMoney = (value) =>
   new Intl.NumberFormat("fr-MA", { style: "currency", currency: "MAD" }).format(
@@ -15,6 +17,7 @@ const statusLabel = (value) => {
 };
 
 export default function UnpaidPage() {
+  const { can } = useAuth();
   const [items, setItems] = useState([]);
   const [filters, setFilters] = useState({
     search: "",
@@ -26,6 +29,7 @@ export default function UnpaidPage() {
   const [filtersApplied, setFiltersApplied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   const totalRemaining = useMemo(
     () => items.reduce((sum, item) => sum + Number(item.remaining_amount || 0), 0),
@@ -61,6 +65,14 @@ export default function UnpaidPage() {
     setItems([]);
     setFiltersApplied(false);
     setError("");
+  };
+
+  const exportPdf = async () => {
+    if (!filters.month_label || !filters.year_value || exporting) { setError("Sélectionnez un mois et une année avant l’export PDF."); return; }
+    setExporting(true); setError("");
+    try { await downloadUnpaidPdf({ month_label: filters.month_label, year_value: filters.year_value }); }
+    catch (err) { setError(err?.response?.data?.message || err?.message || "Impossible d’exporter les impayés."); }
+    finally { setExporting(false); }
   };
 
   return (
@@ -117,6 +129,7 @@ export default function UnpaidPage() {
           <button type="submit" disabled={loading}>
             {loading ? "Chargement..." : "Appliquer"}
           </button>
+          {can("payments.view") && can("payments.export") && <button type="button" disabled={exporting} onClick={exportPdf}>{exporting ? "Export en cours…" : "Exporter les impayés du mois en PDF"}</button>}
         </form>
         <div className="table-wrap">
           <table>
