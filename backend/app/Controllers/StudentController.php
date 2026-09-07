@@ -18,7 +18,10 @@ class StudentController
 
     public function store(): void
     {
-        $result = (new StudentService())->create(Request::json());
+        $data = Request::json();
+        $result = !empty($data['modern_profile'])
+            ? (new StudentService())->createModern($data)
+            : (new StudentService())->create($data);
         if (isset($result['error'])) {
             Response::json(['message' => $result['error']], 422);
         }
@@ -133,7 +136,10 @@ class StudentController
     public function update(): void
     {
         $id = (int)Request::param('id', 0);
-        $result = (new StudentService())->update($id, Request::json());
+        $data = Request::json();
+        $result = !empty($data['modern_profile'])
+            ? (new StudentService())->updateModern($id, $data)
+            : (new StudentService())->update($id, $data);
         if (isset($result['error'])) {
             $status = $result['error'] === 'Student not found' ? 404 : 422;
             if ($result['error'] === 'Forbidden') {
@@ -149,6 +155,40 @@ class StudentController
     {
         $search = isset($_GET['search']) ? (string)$_GET['search'] : null;
         Response::json((new StudentService())->parentSummary($search));
+    }
+
+    public function profile(): void
+    {
+        $id = (int)Request::param('id', 0);
+        $result = (new StudentService())->getById($id);
+        if (!$result) {
+            Response::json(['message' => 'Student not found'], 404);
+        }
+        Response::json($result);
+    }
+
+    public function status(): void
+    {
+        $result = (new StudentService())->changeStatus((int)Request::param('id', 0), Request::json());
+        if (isset($result['error'])) Response::json(['message' => $result['error'], 'remaining_amount' => $result['remaining_amount'] ?? null], 422);
+        Response::json($result);
+    }
+
+    public function statusHistory(): void
+    {
+        Response::json((new StudentService())->statusHistory((int)Request::param('id', 0)));
+    }
+
+    public function matriculePreview(): void
+    {
+        $result = (new StudentService())->matriculePreview();
+        if (isset($result['error'])) Response::json(['message' => $result['error']], 422);
+        Response::json($result);
+    }
+
+    public function massarCheck(): void
+    {
+        Response::json((new StudentService())->massarCheck((string)($_GET['massar_code'] ?? ''), isset($_GET['except_id']) ? (int)$_GET['except_id'] : null));
     }
 
     public function importClass(): void

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { SCHOOL_YEAR_MONTH_OPTIONS } from "../config/schoolOptions";
 import { getUnpaidMonthlyFees } from "../services/monthlyFeeService";
 import useI18n from "../hooks/useI18n";
+import { downloadUnpaidPdf } from "../services/paymentDocumentService";
 
 const formatMoney = (value, language) =>
   new Intl.NumberFormat(language === "ar" ? "ar-MA" : "fr-MA", { style: "currency", currency: "MAD" }).format(
@@ -31,6 +32,7 @@ export default function UnpaidPage() {
   const [filtersApplied, setFiltersApplied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   const totalRemaining = useMemo(
     () => items.reduce((sum, item) => sum + Number(item.remaining_amount || 0), 0),
@@ -66,6 +68,22 @@ export default function UnpaidPage() {
     setItems([]);
     setFiltersApplied(false);
     setError("");
+  };
+
+  const exportPdf = async () => {
+    if (!filters.month_label || !filters.year_value || exporting) {
+      setError("Sélectionnez un mois et une année avant l’export PDF.");
+      return;
+    }
+    setExporting(true);
+    setError("");
+    try {
+      await downloadUnpaidPdf({ month_label: filters.month_label, year_value: filters.year_value });
+    } catch {
+      setError("Impossible d’exporter les impayés.");
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -122,6 +140,7 @@ export default function UnpaidPage() {
           <button type="submit" disabled={loading}>
             {loading ? t("common.loading") : t("common.apply")}
           </button>
+          <button type="button" onClick={exportPdf} disabled={exporting}>{exporting ? "Export en cours…" : "Exporter les impayés en PDF"}</button>
         </form>
         <div className="table-wrap">
           <table>

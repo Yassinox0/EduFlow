@@ -8,6 +8,11 @@ $backendDirectory = dirname(__DIR__);
 $autoloadPath = $backendDirectory . '/vendor/autoload.php';
 $migrationDirectory = $backendDirectory . '/storage/migrations';
 $statusOnly = in_array('--status', $argv, true);
+$onlyArgument = array_values(array_filter(
+    $argv,
+    static fn (string $argument): bool => str_starts_with($argument, '--only=')
+));
+$onlyVersion = $onlyArgument ? substr($onlyArgument[0], strlen('--only=')) : null;
 
 if (!is_file($autoloadPath)) {
     fwrite(STDERR, "Backend dependencies are missing. Run composer install in backend.\n");
@@ -291,6 +296,22 @@ if (!is_dir($migrationDirectory)) {
 
 $migrationFiles = glob($migrationDirectory . '/*.sql') ?: [];
 sort($migrationFiles, SORT_STRING);
+
+if ($onlyVersion !== null) {
+    if ($onlyVersion === '' || basename($onlyVersion) !== $onlyVersion) {
+        fwrite(STDERR, "Invalid --only migration name.\n");
+        exit(1);
+    }
+
+    $migrationFiles = array_values(array_filter(
+        $migrationFiles,
+        static fn (string $migrationPath): bool => basename($migrationPath) === $onlyVersion
+    ));
+    if (!$migrationFiles) {
+        fwrite(STDERR, "Requested migration was not found.\n");
+        exit(1);
+    }
+}
 
 if ($statusOnly) {
     $recordedMigrations = loadRecordedMigrations($pdo);

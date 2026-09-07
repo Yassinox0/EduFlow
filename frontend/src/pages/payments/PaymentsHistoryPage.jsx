@@ -4,6 +4,7 @@ import { MONTH_OPTIONS, normalizeSearch } from "../../config/schoolOptions";
 import useI18n from "../../hooks/useI18n";
 import { getPayments } from "../../services/paymentService";
 import { downloadReceiptPdf } from "../../services/receiptService";
+import { downloadMonthlyPaymentsPdf } from "../../services/paymentDocumentService";
 
 const formatMoney = (value, language) => new Intl.NumberFormat(
   language === "ar" ? "ar-MA" : "fr-MA",
@@ -33,13 +34,14 @@ const paymentMethodLabel = (value, t) => {
   return keys[normalized] ? t(`payments.${keys[normalized]}`) : value || "-";
 };
 
-const emptyFilters = { last_name: "", first_name: "", class_level: "", class_name: "", month_label: "", status: "" };
+const emptyFilters = { last_name: "", first_name: "", class_level: "", class_name: "", month_label: "", year_value: "", status: "" };
 
 export default function PaymentsHistoryPage() {
   const { language, t } = useI18n();
   const [payments, setPayments] = useState([]);
   const [filters, setFilters] = useState(emptyFilters);
   const [downloadingId, setDownloadingId] = useState(null);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -58,6 +60,7 @@ export default function PaymentsHistoryPage() {
       && includes(payment.class_level_name, filters.class_level)
       && includes(payment.class_name, filters.class_name)
       && (!filters.month_label || String(payment.month_label).padStart(2, "0") === filters.month_label)
+      && (!filters.year_value || String(payment.year_value) === String(filters.year_value))
       && (!filters.status || payment.payment_status === filters.status)
     ));
   }, [filters, payments]);
@@ -71,6 +74,22 @@ export default function PaymentsHistoryPage() {
       setError(t("payments.downloadError"));
     } finally {
       setDownloadingId(null);
+    }
+  };
+
+  const exportMonth = async () => {
+    if (!filters.month_label || !filters.year_value || exporting) {
+      setError("Sélectionnez un mois et une année avant l’export PDF.");
+      return;
+    }
+    setExporting(true);
+    setError("");
+    try {
+      await downloadMonthlyPaymentsPdf({ month_label: filters.month_label, year_value: filters.year_value });
+    } catch {
+      setError("Impossible d’exporter les paiements.");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -104,6 +123,7 @@ export default function PaymentsHistoryPage() {
             <option value="">{t("payments.allMonths")}</option>
             {MONTH_OPTIONS.map((month) => <option key={month.value} value={month.value}>{t(`months.${month.value}`)}</option>)}
           </select>
+          <input type="number" min="2000" max="2100" placeholder={t("common.year")} value={filters.year_value} onChange={(event) => setFilters({ ...filters, year_value: event.target.value })} />
           <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}>
             <option value="">{t("payments.allStatuses")}</option>
             <option value="PAID">{t("statuses.paid")}</option>
@@ -111,6 +131,7 @@ export default function PaymentsHistoryPage() {
             <option value="UNPAID">{t("statuses.unpaid")}</option>
           </select>
           <button type="button" className="secondary-btn" onClick={() => setFilters(emptyFilters)}>{t("common.resetFilters")}</button>
+          <button type="button" onClick={exportMonth} disabled={exporting}>{exporting ? "Export en cours…" : "Exporter les paiements en PDF"}</button>
         </div>
       </section>
 

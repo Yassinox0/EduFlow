@@ -161,8 +161,8 @@ Regles:
 Depuis PowerShell, a la racine du projet:
 
 ```powershell
-git switch main
-git pull origin main
+git fetch upstream
+git merge upstream/main
 powershell -ExecutionPolicy Bypass -File .\migrate-database.ps1
 powershell -ExecutionPolicy Bypass -File .\migrate-database.ps1 -Status
 ```
@@ -202,7 +202,7 @@ powershell -ExecutionPolicy Bypass -File .\migrate-database.ps1 -Status
 git add backend/storage/01_schema.sql backend/storage/migrations
 git add .
 git commit -m "feat(database): describe the database change"
-git push origin main
+git push upstream HEAD:main
 ```
 
 Les fichiers `.env`, les sauvegardes MySQL, les photos uploadees et les

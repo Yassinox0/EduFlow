@@ -13,14 +13,14 @@ class SchoolService
     public function listAll(): array
     {
         $pdo = Database::connect();
-        $stmt = $pdo->query('SELECT id, name, code, slug, email_domain, logo_path, phone, address, city, country, primary_color, secondary_color, currency, status, created_at FROM schools ORDER BY id DESC');
+        $stmt = $pdo->query('SELECT id, name, code, slug, email_domain, logo_path, phone, phone_secondary, email, website, administrative_info, address, city, country, primary_color, secondary_color, currency, status, created_at FROM schools ORDER BY id DESC');
         return $stmt->fetchAll();
     }
 
     public function getById(int $schoolId): array|false
     {
         $pdo = Database::connect();
-        $stmt = $pdo->prepare('SELECT id, name, code, slug, email_domain, logo_path, phone, address, city, country, primary_color, secondary_color, currency, status, created_at FROM schools WHERE id = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT id, name, code, slug, email_domain, logo_path, phone, phone_secondary, email, website, administrative_info, address, city, country, primary_color, secondary_color, currency, status, created_at FROM schools WHERE id = ? LIMIT 1');
         $stmt->execute([$schoolId]);
         $school = $stmt->fetch();
         return $school ? $this->withLogoDataUrl($school) : false;
@@ -107,23 +107,43 @@ class SchoolService
         if (!in_array($status, ['ACTIVE', 'INACTIVE'], true)) {
             return ['error' => 'Invalid school status'];
         }
+        $email = $this->nullable($data['email'] ?? $school['email']);
+        $phone = $this->cleanPhone($data['phone'] ?? $school['phone']);
+        $phoneSecondary = $this->cleanPhone($data['phone_secondary'] ?? $school['phone_secondary'] ?? null);
+        $website = $this->nullable($data['website'] ?? $school['website'] ?? null);
+        $administrativeInfo = $this->nullable($data['administrative_info'] ?? $school['administrative_info'] ?? null);
+        $country = $this->nullable($data['country'] ?? $school['country']) ?? 'Maroc';
+        $currency = strtoupper(trim((string)($data['currency'] ?? $school['currency'] ?? 'MAD')));
+        $primaryColor = strtoupper(trim((string)($data['primary_color'] ?? $school['primary_color'] ?? '#0F4AA3')));
+        $secondaryColor = strtoupper(trim((string)($data['secondary_color'] ?? $school['secondary_color'] ?? '#15957D')));
+        if ($email !== null && !filter_var($email, FILTER_VALIDATE_EMAIL)) return ['error' => 'Adresse e-mail invalide'];
+        if (strlen($country) > 100) return ['error' => 'Pays invalide'];
+        if (($phone !== null && !preg_match('/^[0-9+(). -]{3,30}$/', $phone)) || ($phoneSecondary !== null && !preg_match('/^[0-9+(). -]{3,30}$/', $phoneSecondary))) return ['error' => 'Téléphone invalide'];
+        if ($website !== null && !filter_var($website, FILTER_VALIDATE_URL)) return ['error' => 'Site web invalide'];
+        if ($administrativeInfo !== null && strlen($administrativeInfo) > 500) return ['error' => 'Information administrative invalide'];
+        if (!in_array($currency, ['MAD', 'EUR', 'USD'], true)) return ['error' => 'Devise invalide'];
+        if (!preg_match('/^#[0-9A-F]{6}$/', $primaryColor) || !preg_match('/^#[0-9A-F]{6}$/', $secondaryColor)) return ['error' => 'Les couleurs doivent être au format #RRGGBB'];
 
         try {
             $pdo = Database::connect();
-            $stmt = $pdo->prepare('UPDATE schools SET name = ?, code = ?, slug = ?, email_domain = ?, logo_path = ?, phone = ?, address = ?, city = ?, country = ?, primary_color = ?, secondary_color = ?, currency = ?, status = ? WHERE id = ?');
+            $stmt = $pdo->prepare('UPDATE schools SET name = ?, code = ?, slug = ?, email_domain = ?, logo_path = ?, phone = ?, phone_secondary = ?, email = ?, website = ?, administrative_info = ?, address = ?, city = ?, country = ?, primary_color = ?, secondary_color = ?, currency = ?, status = ? WHERE id = ?');
             $stmt->execute([
                 $name,
                 $code,
                 $slug,
                 $emailDomain,
                 $data['logo_path'] ?? $school['logo_path'],
-                $this->nullable($data['phone'] ?? $school['phone']),
+                $phone,
+                $phoneSecondary,
+                $email,
+                $website,
+                $administrativeInfo,
                 $this->nullable($data['address'] ?? $school['address']),
                 $this->nullable($data['city'] ?? $school['city']),
-                $this->nullable($data['country'] ?? $school['country']),
-                $data['primary_color'] ?? $school['primary_color'],
-                $data['secondary_color'] ?? $school['secondary_color'],
-                strtoupper(trim((string)($data['currency'] ?? $school['currency']))),
+                $country,
+                $primaryColor,
+                $secondaryColor,
+                $currency,
                 $status,
                 $schoolId,
             ]);
@@ -225,6 +245,48 @@ class SchoolService
         ]);
     }
 
+    public function getActiveAcademicYear(): array
+    {
+        $schoolId = (int)(Request::get('auth_user', [])['school_id'] ?? 0);
+        if (!$schoolId) return ['active_academic_year_id' => null, 'active_academic_year' => null];
+        $pdo = Database::connect();
+        $setting = $pdo->prepare('SELECT setting_value FROM school_settings WHERE school_id = ? AND setting_key = "active_academic_year_id"');
+        $setting->execute([$schoolId]);
+        $id = (int)($setting->fetchColumn() ?: 0);
+        $year = null;
+        if ($id) {
+            $stmt = $pdo->prepare('SELECT id, school_id, name, start_date, end_date, status FROM academic_years WHERE id = ? AND school_id = ?');
+            $stmt->execute([$id, $schoolId]);
+            $year = $stmt->fetch() ?: null;
+            if ($year) {
+                $year['is_active'] = true;
+            }
+        }
+        return ['active_academic_year_id' => $year ? (int)$year['id'] : null, 'active_academic_year' => $year];
+    }
+
+    public function updateActiveAcademicYear(int $yearId): array
+    {
+        $schoolId = (int)(Request::get('auth_user', [])['school_id'] ?? 0);
+        if (!$schoolId || $yearId <= 0) return ['error' => 'Année scolaire invalide'];
+        $pdo = Database::connect();
+        $year = $pdo->prepare('SELECT id FROM academic_years WHERE id = ? AND school_id = ?');
+        $year->execute([$yearId, $schoolId]);
+        if (!$year->fetch()) return ['error' => 'Cette année scolaire n’appartient pas à votre établissement'];
+        $user = Request::get('auth_user', []);
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare('INSERT INTO school_settings (school_id,setting_key,setting_value,updated_by) VALUES (?,"active_academic_year_id",?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),updated_by=VALUES(updated_by)');
+            $stmt->execute([$schoolId, (string)$yearId, (int)($user['id'] ?? 0) ?: null]);
+            $pdo->prepare('UPDATE academic_years SET is_current = CASE WHEN id = ? THEN 1 ELSE 0 END WHERE school_id = ?')->execute([$yearId, $schoolId]);
+            $pdo->commit();
+        } catch (\Throwable $exception) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            return ['error' => 'La mise à jour de l’année scolaire active a échoué'];
+        }
+        return $this->getActiveAcademicYear() + ['message' => 'Année scolaire active mise à jour'];
+    }
+
     private function withLogoDataUrl(array $school): array
     {
         $school['logo_data_url'] = null;
@@ -290,6 +352,34 @@ class SchoolService
         $str = trim((string)$value);
         return $str === '' ? null : $str;
     }
+
+    private function cleanPhone(mixed $value): ?string
+    {
+        $value = $this->nullable($value);
+        return $value === null ? null : trim((string) preg_replace('/\s+/', ' ', $value));
+    }
+
+    public function uploadCurrentLogo(array $file): array
+    {
+        $schoolId = (int)(Request::get('auth_user', [])['school_id'] ?? 0);
+        if (!$schoolId) return ['error' => 'Établissement introuvable'];
+        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string)($file['tmp_name'] ?? ''))) return ['error' => 'Fichier logo invalide'];
+        if ((int)($file['size'] ?? 0) > 2 * 1024 * 1024) return ['error' => 'Le logo ne doit pas dépasser 2 Mo'];
+        $tmp = (string)$file['tmp_name']; $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($tmp);
+        $types = ['image/png'=>'png','image/jpeg'=>'jpg','image/webp'=>'webp'];
+        if (!isset($types[$mime]) || @getimagesize($tmp) === false) return ['error' => 'Format de logo non autorisé'];
+        $dir = __DIR__ . '/../../storage/uploads/schools/' . $schoolId;
+        if (!is_dir($dir) && !mkdir($dir, 0750, true)) return ['error' => 'Stockage du logo impossible'];
+        $name = bin2hex(random_bytes(16)) . '.' . $types[$mime]; $path = $dir . '/' . $name; $relative = 'storage/uploads/schools/' . $schoolId . '/' . $name;
+        if (!move_uploaded_file($tmp, $path)) return ['error' => 'Enregistrement du logo impossible'];
+        $school = $this->getById($schoolId); $old = (string)($school['logo_path'] ?? '');
+        try { $stmt=Database::connect()->prepare('UPDATE schools SET logo_path=? WHERE id=?'); $stmt->execute([$relative,$schoolId]); } catch (PDOException) { @unlink($path); return ['error'=>'Mise à jour du logo impossible']; }
+        $this->deleteLogoFile($old, $schoolId); return ['logo_path'=>$relative,'mime'=>$mime];
+    }
+    public function getCurrentLogo(): array { $id=(int)(Request::get('auth_user',[])['school_id']??0);$s=$id?$this->getById($id):false;if(!$s||empty($s['logo_path']))return ['logo'=>null];$file=$this->logoFile((string)$s['logo_path'],$id);if(!$file)return ['logo'=>null];$mime=mime_content_type($file)?:'image/png';return ['logo'=>'data:'.$mime.';base64,'.base64_encode((string)file_get_contents($file)),'mime'=>$mime]; }
+    public function deleteCurrentLogo(): array { $id=(int)(Request::get('auth_user',[])['school_id']??0);$s=$id?$this->getById($id):false;if(!$s)return ['error'=>'Établissement introuvable'];$old=(string)($s['logo_path']??'');Database::connect()->prepare('UPDATE schools SET logo_path=NULL WHERE id=?')->execute([$id]);$this->deleteLogoFile($old,$id);return ['message'=>'Logo supprimé']; }
+    private function logoFile(string $relative,int $schoolId):?string { $prefix='storage/uploads/schools/'.$schoolId.'/';if(!str_starts_with($relative,$prefix))return null;$file=realpath(__DIR__.'/../../'.$relative);$dir=realpath(__DIR__.'/../../storage/uploads/schools/'.$schoolId);return $file&&$dir&&str_starts_with($file,$dir.'/')&&is_file($file)?$file:null; }
+    private function deleteLogoFile(string $relative,int $schoolId):void { $file=$this->logoFile($relative,$schoolId);if($file)@unlink($file); }
 
     public function delete(int $schoolId): array
     {

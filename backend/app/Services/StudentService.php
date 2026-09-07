@@ -170,6 +170,11 @@ class StudentService
         ');
         $paymentsStmt->execute([$studentId, (int)$student['school_id']]);
 
+        $guardiansStmt = $pdo->prepare('SELECT g.id,g.full_name,g.phone_primary,g.phone_secondary,g.email,sg.relationship_type,sg.is_financial_responsible FROM student_guardians sg INNER JOIN guardians g ON g.id=sg.guardian_id AND g.school_id=sg.school_id WHERE sg.student_id=? AND sg.school_id=? ORDER BY sg.is_financial_responsible DESC,g.id');
+        $guardiansStmt->execute([$studentId, (int)$student['school_id']]);
+        $chargesStmt = $pdo->prepare('SELECT fi.id,fi.paid_amount,fi.status,details.charge_category_id,details.original_amount,details.discount_type,details.discount_value,details.final_amount,details.due_date,GREATEST(0,details.final_amount-fi.paid_amount) remaining_amount,fi.label FROM student_financial_items fi INNER JOIN student_financial_item_details details ON details.student_financial_item_id=fi.id AND details.school_id=fi.school_id WHERE fi.student_id=? AND fi.school_id=? ORDER BY fi.id DESC');
+        $chargesStmt->execute([$studentId, (int)$student['school_id']]);
+
         $siblings = [];
         if (!empty($student['parent_id'])) {
             $siblingsStmt = $pdo->prepare('
@@ -206,6 +211,8 @@ class StudentService
             ],
             'monthly_fees' => $feesStmt->fetchAll(),
             'payments' => $paymentsStmt->fetchAll(),
+            'guardians' => $guardiansStmt->fetchAll(),
+            'charges' => $chargesStmt->fetchAll(),
         ];
     }
 
@@ -317,8 +324,9 @@ class StudentService
         $gender = $this->nullable($data['gender'] ?? null);
         $className = $this->nullable($data['class_name'] ?? null);
         $address = $this->nullable($data['address'] ?? null);
-        $status = strtoupper(trim((string)($data['status'] ?? 'ACTIVE')));
-        if (!in_array($status, ['ACTIVE', 'INACTIVE'], true)) {
+        $status = strtoupper(trim((string)($data['status'] ?? 'REGISTERED')));
+        $status = $status === 'ACTIVE' ? 'REGISTERED' : ($status === 'INACTIVE' ? 'ARCHIVED' : $status);
+        if (!in_array($status, ['PRE_REGISTERED', 'REGISTERED', 'WAITING_LIST', 'CANCELLED', 'ARCHIVED'], true)) {
             return ['error' => 'Invalid student status'];
         }
 
@@ -456,8 +464,9 @@ class StudentService
             ? trim((string)$data['school_year'])
             : (string)($student['school_year'] ?? '');
 
-        $status = strtoupper(trim((string)($data['status'] ?? $student['status'] ?? 'ACTIVE')));
-        if (!in_array($status, ['ACTIVE', 'INACTIVE'], true)) {
+        $status = strtoupper(trim((string)($data['status'] ?? $student['status'] ?? 'REGISTERED')));
+        $status = $status === 'ACTIVE' ? 'REGISTERED' : ($status === 'INACTIVE' ? 'ARCHIVED' : $status);
+        if (!in_array($status, ['PRE_REGISTERED', 'REGISTERED', 'WAITING_LIST', 'CANCELLED', 'ARCHIVED'], true)) {
             return ['error' => 'Invalid student status'];
         }
 
@@ -574,6 +583,133 @@ class StudentService
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchAll();
+    }
+
+    public function createModern(array $data): array
+    {
+        $pdo = Database::connect();
+        $ownsTransaction = !$pdo->inTransaction();
+        if ($ownsTransaction) $pdo->beginTransaction();
+        try {
+            $result = $this->create($data);
+            if (isset($result['error'])) throw new \DomainException($result['error']);
+            $this->syncModernProfile($pdo, (int)$result['id'], (int)$result['school_id'], $data, true);
+            if ($ownsTransaction) $pdo->commit();
+            return $result;
+        } catch (\Throwable $exception) {
+            if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+            return ['error' => $exception instanceof \DomainException ? $exception->getMessage() : 'Student creation failed'];
+        }
+    }
+
+    public function updateModern(int $studentId, array $data): array
+    {
+        $pdo = Database::connect();
+        $student = $this->findStudent($pdo, $studentId);
+        if (!$student) return ['error' => 'Student not found'];
+        [$role, $scopeSchool] = $this->authScope();
+        if ($role !== 'super_admin' && (int)$student['school_id'] !== (int)$scopeSchool) return ['error' => 'Forbidden'];
+        $ownsTransaction = !$pdo->inTransaction();
+        if ($ownsTransaction) $pdo->beginTransaction();
+        try {
+            $result = $this->update($studentId, $data);
+            if (isset($result['error'])) throw new \DomainException($result['error']);
+            $this->syncModernProfile($pdo, $studentId, (int)$student['school_id'], $data, false);
+            if ($ownsTransaction) $pdo->commit();
+            return $result;
+        } catch (\Throwable $exception) {
+            if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+            return ['error' => $exception instanceof \DomainException ? $exception->getMessage() : 'Student update failed'];
+        }
+    }
+
+    private function syncModernProfile(PDO $pdo, int $studentId, int $schoolId, array $data, bool $creating): void
+    {
+        $yearId = $this->activeAcademicYearId($pdo, $schoolId);
+        if (!$yearId) throw new \DomainException('No active academic year configured for this school');
+        $student = $this->findStudent($pdo, $studentId);
+        $pdo->prepare('UPDATE students SET internal_number=?, massar_code=?, cne=?, first_name_ar=?, last_name_ar=?, uses_transport=?, academic_year_id=? WHERE id=? AND school_id=?')->execute([
+            $this->nullable($data['internal_number'] ?? $student['internal_number'] ?? null),
+            $this->nullable($data['massar_code'] ?? $student['massar_code'] ?? null),
+            $this->nullable($data['cne'] ?? $student['cne'] ?? null),
+            $this->nullable($data['first_name_ar'] ?? $student['first_name_ar'] ?? null),
+            $this->nullable($data['last_name_ar'] ?? $student['last_name_ar'] ?? null),
+            !empty($data['uses_transport']) ? 1 : 0,
+            $yearId, $studentId, $schoolId,
+        ]);
+        if (!empty($student['class_level_id'])) {
+            $pdo->prepare('INSERT INTO enrollments (school_id,academic_year_id,student_id,class_level_id,enrollment_date,status) VALUES (?,?,?,?,?,"ACTIVE") ON DUPLICATE KEY UPDATE class_level_id=VALUES(class_level_id),status="ACTIVE"')->execute([$schoolId, $yearId, $studentId, (int)$student['class_level_id'], date('Y-m-d')]);
+        }
+        $this->syncGuardians($pdo, $studentId, $schoolId, (array)($data['guardians'] ?? []), $data['family_id'] ?? null);
+        foreach ((array)($data['charges'] ?? []) as $charge) {
+            if (!empty($charge['id'])) continue;
+            $this->createModernCharge($pdo, $studentId, $schoolId, $yearId, (array)$charge);
+        }
+    }
+
+    private function activeAcademicYearId(PDO $pdo, int $schoolId): ?int
+    {
+        $stmt = $pdo->prepare('SELECT ay.id FROM school_settings settings INNER JOIN academic_years ay ON ay.id=CAST(settings.setting_value AS UNSIGNED) AND ay.school_id=settings.school_id WHERE settings.school_id=? AND settings.setting_key="active_academic_year_id"');
+        $stmt->execute([$schoolId]); $id = (int)($stmt->fetchColumn() ?: 0);
+        return $id ?: null;
+    }
+
+    private function syncGuardians(PDO $pdo, int $studentId, int $schoolId, array $guardians, mixed $familyId): void
+    {
+        $guardians = array_values(array_filter($guardians, static fn ($guardian) => trim((string)($guardian['full_name'] ?? '')) !== ''));
+        if (!$guardians) return;
+        if (count($guardians) > 3) throw new \DomainException('A student can have at most three guardians');
+        $familyId = (int)$familyId;
+        if ($familyId) {
+            $check = $pdo->prepare('SELECT id FROM families WHERE id=? AND school_id=?'); $check->execute([$familyId, $schoolId]);
+            if (!$check->fetch()) throw new \DomainException('Invalid family');
+        } else {
+            $reference = 'FAM-' . $schoolId . '-' . strtoupper(bin2hex(random_bytes(4)));
+            $pdo->prepare('INSERT INTO families (school_id,family_reference,family_name) VALUES (?,?,?)')->execute([$schoolId, $reference, trim((string)$guardians[0]['full_name'])]);
+            $familyId = (int)$pdo->lastInsertId();
+        }
+        $guardianIds = [];
+        foreach ($guardians as $index => $guardian) {
+            $guardianId = (int)($guardian['id'] ?? 0);
+            if ($guardianId) {
+                $check = $pdo->prepare('SELECT id FROM guardians WHERE id=? AND school_id=?'); $check->execute([$guardianId, $schoolId]);
+                if (!$check->fetch()) throw new \DomainException('Invalid guardian');
+            } else {
+                $phone = $this->nullable($guardian['phone_primary'] ?? null);
+                $email = $this->nullable($guardian['email'] ?? null);
+                $existing = $pdo->prepare('SELECT id FROM guardians WHERE school_id=? AND ((? IS NOT NULL AND phone_primary=?) OR (? IS NOT NULL AND email=?)) LIMIT 1');
+                $existing->execute([$schoolId, $phone, $phone, $email, $email]); $guardianId = (int)($existing->fetchColumn() ?: 0);
+                if (!$guardianId) {
+                    $pdo->prepare('INSERT INTO guardians (school_id,full_name,phone_primary,phone_secondary,email) VALUES (?,?,?,?,?)')->execute([$schoolId, trim((string)$guardian['full_name']), $phone, $this->nullable($guardian['phone_secondary'] ?? null), $email]);
+                    $guardianId = (int)$pdo->lastInsertId();
+                }
+            }
+            $relationship = trim((string)($guardian['relationship_type'] ?? 'Responsable'));
+            $pdo->prepare('INSERT IGNORE INTO student_guardians (student_id,guardian_id,school_id,relationship_type,is_financial_responsible,is_emergency_contact) VALUES (?,?,?,?,?,?)')->execute([$studentId, $guardianId, $schoolId, $relationship, $index === 0 ? 1 : 0, $index === 0 ? 1 : 0]);
+            $pdo->prepare('UPDATE student_guardians SET relationship_type=?,is_financial_responsible=?,is_emergency_contact=? WHERE student_id=? AND guardian_id=? AND school_id=?')->execute([$relationship, $index === 0 ? 1 : 0, $index === 0 ? 1 : 0, $studentId, $guardianId, $schoolId]);
+            if ($index === 0) $pdo->prepare('UPDATE families SET primary_guardian_id=? WHERE id=? AND school_id=?')->execute([$guardianId, $familyId, $schoolId]);
+            $guardianIds[] = $guardianId;
+        }
+        $placeholders = implode(',', array_fill(0, count($guardianIds), '?'));
+        $pdo->prepare("DELETE FROM student_guardians WHERE student_id=? AND school_id=? AND guardian_id NOT IN ({$placeholders})")
+            ->execute([$studentId, $schoolId, ...$guardianIds]);
+        $pdo->prepare('UPDATE students SET family_id=? WHERE id=? AND school_id=?')->execute([$familyId, $studentId, $schoolId]);
+    }
+
+    private function createModernCharge(PDO $pdo, int $studentId, int $schoolId, int $yearId, array $charge): void
+    {
+        $categoryId = (int)($charge['charge_category_id'] ?? 0);
+        $category = $pdo->prepare('SELECT id,code,label FROM charge_categories WHERE id=? AND school_id=? AND status="ACTIVE"'); $category->execute([$categoryId, $schoolId]); $category = $category->fetch();
+        if (!$category) throw new \DomainException('Invalid charge category');
+        $amount = round((float)($charge['original_amount'] ?? 0), 2); $type = $charge['discount_type'] ?? null; $value = round((float)($charge['discount_value'] ?? 0), 2);
+        if ($amount < 0 || !in_array($type, [null, '', 'FIXED', 'PERCENTAGE'], true) || $value < 0 || ($type === 'PERCENTAGE' && $value > 100)) throw new \DomainException('Invalid charge discount');
+        $discount = $type === 'PERCENTAGE' ? round($amount * $value / 100, 2) : ($type === 'FIXED' ? $value : 0);
+        if ($discount > $amount) throw new \DomainException('The discount cannot exceed the charge amount');
+        $final = round($amount - $discount, 2); $due = $this->normalizeDate($charge['due_date'] ?? null);
+        $pdo->prepare('INSERT INTO student_financial_items (school_id,student_id,academic_year_id,item_code,label,unit_amount,total_amount,discount_amount,paid_amount,status,created_by) VALUES (?,?,?,?,?,?,?, ?,0,"UNPAID",?)')->execute([$schoolId, $studentId, $yearId, $category['code'] . '_' . bin2hex(random_bytes(3)), $this->nullable($charge['label'] ?? null) ?: $category['label'], $amount, $final, $discount, (int)(Request::get('auth_user', [])['id'] ?? 0) ?: null]);
+        $itemId = (int)$pdo->lastInsertId();
+        $pdo->prepare('INSERT INTO student_financial_item_details (student_financial_item_id,school_id,charge_category_id,due_date,original_amount,discount_type,discount_value,final_amount,modified_by) VALUES (?,?,?,?,?,?,?,?,?)')->execute([$itemId,$schoolId,$category['id'],$due,$amount,$type ?: null,$type ? $value : null,$final,(int)(Request::get('auth_user', [])['id'] ?? 0) ?: null]);
+        $pdo->prepare('INSERT INTO student_financial_item_history (school_id,student_financial_item_id,action,after_data,changed_by) VALUES (?,?,"CREATED",?,?)')->execute([$schoolId,$itemId,json_encode(['final_amount'=>$final]),(int)(Request::get('auth_user', [])['id'] ?? 0) ?: null]);
     }
 
     private function authScope(): array

@@ -21,6 +21,18 @@ class SchoolController
         Response::json((new SchoolService())->getCurrent());
     }
 
+    public function updateCurrent(): void
+    {
+        $user = Request::get('auth_user', []);
+        $schoolId = (int)($user['school_id'] ?? 0);
+        if (!$schoolId) Response::json(['message' => 'School not found'], 404);
+        $result = (new SchoolService())->update($schoolId, Request::json());
+        if (isset($result['error'])) Response::json(['message' => $result['error']], 422);
+        Response::json($result);
+    }
+    public function activeAcademicYear(): void { Response::json((new SchoolService())->getActiveAcademicYear()); }
+    public function updateActiveAcademicYear(): void { $r=(new SchoolService())->updateActiveAcademicYear((int)(Request::json()['academic_year_id']??0));if(isset($r['error']))Response::json(['message'=>$r['error']],422);Response::json($r); }
+
     public function show(): void
     {
         $id = (int)Request::param('id', 0);
@@ -102,6 +114,7 @@ class SchoolController
 
     public function uploadLogo(): void
     {
+        $result=(new SchoolService())->uploadCurrentLogo($_FILES['logo']??[]);if(isset($result['error']))Response::json(['message'=>$result['error']],422);Response::json($result,201);return;
         if (!isset($_FILES['logo'])) {
             Response::json(['message' => 'Logo file is required'], 422);
         }
@@ -132,4 +145,7 @@ class SchoolController
             'public_url' => 'http://127.0.0.1:8080/' . $relativePath,
         ], 201);
     }
+
+    public function currentLogo(): void { Response::json((new SchoolService())->getCurrentLogo()); }
+    public function deleteCurrentLogo(): void { $result=(new SchoolService())->deleteCurrentLogo();if(isset($result['error']))Response::json(['message'=>$result['error']],404);Response::json($result); }
 }

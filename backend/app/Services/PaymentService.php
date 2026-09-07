@@ -24,11 +24,12 @@ class PaymentService
                 COALESCE(cl.level_name, cl.name, s.class_level) AS class_level_name,
                 mf.month_label,
                 mf.year_value,
-                mf.status AS payment_status,
+                COALESCE(mf.status, p.status) AS payment_status,
+                p.status AS payment_record_status,
                 pm.label AS payment_method_label
             FROM payments p
             INNER JOIN students s ON s.id = p.student_id
-            INNER JOIN monthly_fees mf ON mf.id = p.monthly_fee_id
+            LEFT JOIN monthly_fees mf ON mf.id = p.monthly_fee_id AND mf.school_id = p.school_id
             LEFT JOIN class_levels cl ON cl.id = s.class_level_id
             LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id
         ';
@@ -54,6 +55,10 @@ class PaymentService
 
         if (!$schoolId) {
             return ['error' => 'School is required to create payment'];
+        }
+
+        if (!empty($data['allocations']) && is_array($data['allocations'])) {
+            return $this->createFlexible($data, $schoolId);
         }
 
         $studentId = (int)($data['student_id'] ?? 0);
@@ -94,11 +99,16 @@ class PaymentService
         }
 
         try {
-            $pdo->beginTransaction();
+            $startedTransaction = !$pdo->inTransaction();
+            if ($startedTransaction) {
+                $pdo->beginTransaction();
+            }
 
             $resolved = $monthlyFeeService->resolveOrCreateFee($schoolId, $studentId, $monthlyFeeId, $monthLabel, $yearValue);
             if (isset($resolved['error'])) {
-                $pdo->rollBack();
+                if ($startedTransaction) {
+                    $pdo->rollBack();
+                }
                 return $resolved;
             }
 
@@ -108,12 +118,16 @@ class PaymentService
             $remainingAmount = (float)($fee['remaining_amount'] ?? max(0, $totalAmount - $currentPaid));
 
             if ($remainingAmount <= 0) {
-                $pdo->rollBack();
+                if ($startedTransaction) {
+                    $pdo->rollBack();
+                }
                 return ['error' => 'Monthly fee already fully paid'];
             }
 
             if ($amountPaid > $remainingAmount) {
-                $pdo->rollBack();
+                if ($startedTransaction) {
+                    $pdo->rollBack();
+                }
                 return ['error' => 'amount_paid exceeds remaining amount'];
             }
 
@@ -175,7 +189,9 @@ class PaymentService
             ');
             $updateFee->execute([$updatedPaid, $updatedRemaining, $updatedStatus, (int)$fee['id']]);
 
-            $pdo->commit();
+            if ($startedTransaction) {
+                $pdo->commit();
+            }
 
             return [
                 'id' => $paymentId,
@@ -187,7 +203,7 @@ class PaymentService
                 'message' => 'Payment created successfully',
             ];
         } catch (Throwable) {
-            if ($pdo->inTransaction()) {
+            if (($startedTransaction ?? false) && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             return ['error' => 'Payment creation failed'];
@@ -255,7 +271,7 @@ class PaymentService
                 pm.label AS payment_method_label
             FROM payments p
             INNER JOIN students s ON s.id = p.student_id
-            INNER JOIN monthly_fees mf ON mf.id = p.monthly_fee_id
+            LEFT JOIN monthly_fees mf ON mf.id = p.monthly_fee_id AND mf.school_id = p.school_id
             LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id
             WHERE p.id = ?
         ';
@@ -269,7 +285,25 @@ class PaymentService
             $stmt->execute([$paymentId]);
         }
 
-        return $stmt->fetch() ?: false;
+        $payment = $stmt->fetch() ?: false;
+        if (!$payment) {
+            return false;
+        }
+
+        $allocations = $pdo->prepare('
+            SELECT pa.id, pa.student_financial_item_id, pa.amount, pa.created_at,
+                   fi.label, fi.status AS item_status,
+                   details.final_amount
+            FROM payment_allocations pa
+            INNER JOIN student_financial_items fi ON fi.id = pa.student_financial_item_id AND fi.school_id = pa.school_id
+            INNER JOIN student_financial_item_details details ON details.student_financial_item_id = fi.id AND details.school_id = fi.school_id
+            WHERE pa.payment_id = ? AND pa.school_id = ?
+            ORDER BY pa.id
+        ');
+        $allocations->execute([$paymentId, (int)$payment['school_id']]);
+        $payment['allocations'] = $allocations->fetchAll();
+
+        return $payment;
     }
 
     public function update(int $paymentId, array $data): array
@@ -280,6 +314,9 @@ class PaymentService
         $payment = $this->getById($paymentId);
         if (!$payment) {
             return ['error' => 'Payment not found'];
+        }
+        if (!empty($payment['allocations'])) {
+            return ['error' => 'Flexible payments cannot be edited; cancel and create a corrected payment'];
         }
 
         $amountPaid = isset($data['amount_paid']) ? round((float)$data['amount_paid'], 2) : (float)$payment['amount_paid'];
@@ -298,7 +335,10 @@ class PaymentService
         }
 
         try {
-            $pdo->beginTransaction();
+            $startedTransaction = !$pdo->inTransaction();
+            if ($startedTransaction) {
+                $pdo->beginTransaction();
+            }
 
             // Get the current monthly fee
             $feeStmt = $pdo->prepare('SELECT * FROM monthly_fees WHERE id = ? LIMIT 1');
@@ -306,7 +346,9 @@ class PaymentService
             $fee = $feeStmt->fetch();
 
             if (!$fee) {
-                $pdo->rollBack();
+                if ($startedTransaction) {
+                    $pdo->rollBack();
+                }
                 return ['error' => 'Monthly fee not found'];
             }
 
@@ -320,7 +362,9 @@ class PaymentService
             
             // Validate new amount doesn't exceed total
             if ($newFeeAmountPaid > $totalAmount) {
-                $pdo->rollBack();
+                if ($startedTransaction) {
+                    $pdo->rollBack();
+                }
                 return ['error' => 'Total amount paid would exceed monthly fee total'];
             }
 
@@ -353,7 +397,9 @@ class PaymentService
             ');
             $updateFee->execute([$newFeeAmountPaid, $newRemaining, $newStatus, $payment['monthly_fee_id']]);
 
-            $pdo->commit();
+            if ($startedTransaction) {
+                $pdo->commit();
+            }
 
             return [
                 'id' => $paymentId,
@@ -361,7 +407,7 @@ class PaymentService
                 'message' => 'Payment updated successfully',
             ];
         } catch (Throwable) {
-            if ($pdo->inTransaction()) {
+            if (($startedTransaction ?? false) && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             return ['error' => 'Payment update failed'];
@@ -377,9 +423,15 @@ class PaymentService
         if (!$payment) {
             return ['error' => 'Payment not found'];
         }
+        if (!empty($payment['allocations'])) {
+            return ['error' => 'Flexible payments must be cancelled, not deleted'];
+        }
 
         try {
-            $pdo->beginTransaction();
+            $startedTransaction = !$pdo->inTransaction();
+            if ($startedTransaction) {
+                $pdo->beginTransaction();
+            }
 
             // Get the monthly fee to update its status
             $feeStmt = $pdo->prepare('SELECT * FROM monthly_fees WHERE id = ? LIMIT 1');
@@ -387,7 +439,9 @@ class PaymentService
             $fee = $feeStmt->fetch();
 
             if (!$fee) {
-                $pdo->rollBack();
+                if ($startedTransaction) {
+                    $pdo->rollBack();
+                }
                 return ['error' => 'Monthly fee not found'];
             }
 
@@ -422,14 +476,202 @@ class PaymentService
             ');
             $updateFee->execute([$totalPaid, $remaining, $newStatus, $payment['monthly_fee_id']]);
 
-            $pdo->commit();
+            if ($startedTransaction) {
+                $pdo->commit();
+            }
 
             return ['id' => $paymentId, 'message' => 'Payment deleted successfully'];
         } catch (Throwable) {
-            if ($pdo->inTransaction()) {
+            if (($startedTransaction ?? false) && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             return ['error' => 'Payment deletion failed'];
         }
+    }
+
+    public function cancel(int $paymentId, array $data): array
+    {
+        $payment = $this->getById($paymentId);
+        if (!$payment) {
+            return ['error' => 'Payment not found'];
+        }
+        if (empty($payment['allocations'])) {
+            return ['error' => 'Only flexible payments can be cancelled through this endpoint'];
+        }
+        if (($payment['status'] ?? 'COMPLETED') === 'CANCELLED') {
+            return ['error' => 'Payment is already cancelled'];
+        }
+
+        $reason = trim((string)($data['reason'] ?? ''));
+        if ($reason === '') {
+            return ['error' => 'A cancellation reason is required'];
+        }
+
+        $pdo = Database::connect();
+        $userId = (int)(Request::get('auth_user', [])['id'] ?? 0) ?: null;
+        try {
+            $ownsTransaction = !$pdo->inTransaction();
+            if ($ownsTransaction) {
+                $pdo->beginTransaction();
+            }
+            $stmt = $pdo->prepare('UPDATE payments SET status = "CANCELLED", cancelled_at = CURRENT_TIMESTAMP, cancelled_by_user_id = ?, cancellation_reason = ? WHERE id = ? AND school_id = ? AND status = "COMPLETED"');
+            $stmt->execute([$userId, $reason, $paymentId, (int)$payment['school_id']]);
+            if ($stmt->rowCount() !== 1) {
+                throw new \RuntimeException('Payment cancellation failed');
+            }
+
+            foreach ($payment['allocations'] as $allocation) {
+                $this->refreshFlexibleItem($pdo, (int)$payment['school_id'], (int)$allocation['student_financial_item_id'], 'PAYMENT_CANCELLED', $reason, $userId);
+            }
+            if ($ownsTransaction) {
+                $pdo->commit();
+            }
+
+            return ['id' => $paymentId, 'status' => 'CANCELLED', 'message' => 'Flexible payment cancelled'];
+        } catch (\Throwable $exception) {
+            if (($ownsTransaction ?? false) && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            return ['error' => $exception->getMessage() === 'Payment cancellation failed' ? $exception->getMessage() : 'Payment cancellation failed'];
+        }
+    }
+
+    private function createFlexible(array $data, int $schoolId): array
+    {
+        $pdo = Database::connect();
+        $studentId = (int)($data['student_id'] ?? 0);
+        $amountPaid = round((float)($data['amount_paid'] ?? $data['amount'] ?? 0), 2);
+        $paymentDate = trim((string)($data['payment_date'] ?? date('Y-m-d')));
+        $allocations = $this->normalizeAllocations($data['allocations'] ?? []);
+
+        if ($studentId <= 0 || $amountPaid <= 0 || !$allocations) {
+            return ['error' => 'student_id, amount_paid and allocations are required'];
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $paymentDate)) {
+            return ['error' => 'Invalid payment_date format'];
+        }
+        $allocatedTotal = round(array_sum(array_column($allocations, 'amount')), 2);
+        if (abs($allocatedTotal - $amountPaid) > 0.00001) {
+            return ['error' => 'The allocation total must equal amount_paid'];
+        }
+
+        $student = $pdo->prepare('SELECT s.id, sch.code AS school_code FROM students s INNER JOIN schools sch ON sch.id = s.school_id WHERE s.id = ? AND s.school_id = ? LIMIT 1');
+        $student->execute([$studentId, $schoolId]);
+        $studentRow = $student->fetch();
+        if (!$studentRow) {
+            return ['error' => 'Student not found for this school'];
+        }
+        $paymentMethod = $this->resolvePaymentMethod($pdo, $data);
+        if (isset($paymentMethod['error'])) {
+            return $paymentMethod;
+        }
+
+        try {
+            $ownsTransaction = !$pdo->inTransaction();
+            if ($ownsTransaction) {
+                $pdo->beginTransaction();
+            }
+            $items = [];
+            foreach ($allocations as $allocation) {
+                $item = $this->lockedFlexibleItem($pdo, $schoolId, $studentId, $allocation['student_financial_item_id']);
+                if (!$item) {
+                    throw new \DomainException('A charge does not belong to this student or school');
+                }
+                if ($item['status'] === 'EXEMPT') {
+                    throw new \DomainException('A cancelled charge cannot be paid');
+                }
+                $remaining = round((float)$item['final_amount'] - (float)$item['allocated_paid'], 2);
+                if ($remaining <= 0 || $allocation['amount'] > $remaining + 0.00001) {
+                    throw new \DomainException('An allocation exceeds the remaining charge balance');
+                }
+                $items[$allocation['student_financial_item_id']] = $item;
+            }
+
+            $insert = $pdo->prepare('INSERT INTO payments (school_id, student_id, monthly_fee_id, amount_paid, payment_date, payment_method_id, payment_method, status) VALUES (?, ?, NULL, ?, ?, ?, ?, "COMPLETED")');
+            $insert->execute([$schoolId, $studentId, $amountPaid, $paymentDate, $paymentMethod['id'], $paymentMethod['code']]);
+            $paymentId = (int)$pdo->lastInsertId();
+            $schoolCode = strtoupper((string)preg_replace('/[^A-Za-z0-9]+/', '-', (string)$studentRow['school_code']));
+            $schoolCode = trim($schoolCode, '-') ?: 'ECOLE';
+            $receiptNumber = sprintf('%s-%s-%06d', $schoolCode, substr($paymentDate, 0, 4), $paymentId);
+            $userId = (int)(Request::get('auth_user', [])['id'] ?? 0) ?: null;
+            $pdo->prepare('UPDATE payments SET receipt_number = ?, issued_by_user_id = ? WHERE id = ?')->execute([$receiptNumber, $userId, $paymentId]);
+
+            $insertAllocation = $pdo->prepare('INSERT INTO payment_allocations (school_id, payment_id, student_financial_item_id, amount) VALUES (?, ?, ?, ?)');
+            foreach ($allocations as $allocation) {
+                $insertAllocation->execute([$schoolId, $paymentId, $allocation['student_financial_item_id'], $allocation['amount']]);
+            }
+            foreach (array_keys($items) as $itemId) {
+                $this->refreshFlexibleItem($pdo, $schoolId, $itemId, 'PAYMENT_ALLOCATED', null, $userId);
+            }
+            if ($ownsTransaction) {
+                $pdo->commit();
+            }
+
+            return ['id' => $paymentId, 'school_id' => $schoolId, 'receipt_number' => $receiptNumber, 'allocations' => $allocations, 'message' => 'Flexible payment created successfully'];
+        } catch (\DomainException $exception) {
+            if (($ownsTransaction ?? false) && $pdo->inTransaction()) $pdo->rollBack();
+            return ['error' => $exception->getMessage()];
+        } catch (\Throwable $exception) {
+            if (($ownsTransaction ?? false) && $pdo->inTransaction()) $pdo->rollBack();
+            error_log('Flexible payment creation failed: ' . $exception->getMessage());
+            return ['error' => 'Flexible payment creation failed'];
+        }
+    }
+
+    private function normalizeAllocations(array $allocations): array
+    {
+        $normalized = [];
+        foreach ($allocations as $allocation) {
+            $itemId = (int)($allocation['student_financial_item_id'] ?? 0);
+            $amount = round((float)($allocation['amount'] ?? 0), 2);
+            if ($itemId <= 0 || $amount <= 0 || isset($normalized[$itemId])) {
+                return [];
+            }
+            $normalized[$itemId] = ['student_financial_item_id' => $itemId, 'amount' => $amount];
+        }
+        return array_values($normalized);
+    }
+
+    private function lockedFlexibleItem(\PDO $pdo, int $schoolId, int $studentId, int $itemId): array|false
+    {
+        $stmt = $pdo->prepare('
+            SELECT fi.id, fi.status, details.final_amount,
+                   COALESCE(SUM(CASE WHEN payment.status = "COMPLETED" THEN allocation.amount ELSE 0 END), 0) AS allocated_paid
+            FROM student_financial_items fi
+            INNER JOIN student_financial_item_details details ON details.student_financial_item_id = fi.id AND details.school_id = fi.school_id
+            LEFT JOIN payment_allocations allocation ON allocation.student_financial_item_id = fi.id AND allocation.school_id = fi.school_id
+            LEFT JOIN payments payment ON payment.id = allocation.payment_id AND payment.school_id = allocation.school_id
+            WHERE fi.id = ? AND fi.student_id = ? AND fi.school_id = ?
+            GROUP BY fi.id, fi.status, details.final_amount
+            FOR UPDATE
+        ');
+        $stmt->execute([$itemId, $studentId, $schoolId]);
+        return $stmt->fetch() ?: false;
+    }
+
+    private function refreshFlexibleItem(\PDO $pdo, int $schoolId, int $itemId, string $action, ?string $reason, ?int $userId): void
+    {
+        $item = $pdo->prepare('
+            SELECT fi.id, fi.paid_amount, fi.status, details.final_amount,
+                   COALESCE(SUM(CASE WHEN payment.status = "COMPLETED" THEN allocation.amount ELSE 0 END), 0) AS paid
+            FROM student_financial_items fi
+            INNER JOIN student_financial_item_details details ON details.student_financial_item_id = fi.id AND details.school_id = fi.school_id
+            LEFT JOIN payment_allocations allocation ON allocation.student_financial_item_id = fi.id AND allocation.school_id = fi.school_id
+            LEFT JOIN payments payment ON payment.id = allocation.payment_id AND payment.school_id = allocation.school_id
+            WHERE fi.id = ? AND fi.school_id = ?
+            GROUP BY fi.id, fi.paid_amount, fi.status, details.final_amount
+            FOR UPDATE
+        ');
+        $item->execute([$itemId, $schoolId]);
+        $row = $item->fetch();
+        if (!$row) throw new \RuntimeException('Charge not found');
+
+        $paid = round((float)$row['paid'], 2);
+        $final = round((float)$row['final_amount'], 2);
+        $status = $paid <= 0 ? 'UNPAID' : ($paid >= $final ? 'PAID' : 'PARTIAL');
+        $before = ['paid_amount' => (float)$row['paid_amount'], 'status' => $row['status']];
+        $after = ['paid_amount' => $paid, 'remaining_amount' => max(0, round($final - $paid, 2)), 'status' => $status];
+        $pdo->prepare('UPDATE student_financial_items SET paid_amount = ?, status = ? WHERE id = ? AND school_id = ?')->execute([$paid, $status, $itemId, $schoolId]);
+        $pdo->prepare('INSERT INTO student_financial_item_history (school_id, student_financial_item_id, action, before_data, after_data, reason, changed_by) VALUES (?, ?, ?, ?, ?, ?, ?)')->execute([$schoolId, $itemId, $action, json_encode($before), json_encode($after), $reason, $userId]);
     }
 }

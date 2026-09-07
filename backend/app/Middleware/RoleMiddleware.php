@@ -25,7 +25,7 @@ class RoleMiddleware
         }
 
         if (!in_array($role, $requiredRoles, true)) {
-            Response::json(['message' => 'Forbidden'], 403);
+            Response::json(['message' => 'Accès non autorisé'], 403);
         }
     }
 }

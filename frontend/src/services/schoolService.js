@@ -4,6 +4,12 @@ export const getCurrentSchool = async () => {
   const response = await api.get("/api/school/current");
   return response.data;
 };
+export const updateCurrentSchool = async (payload) => (await api.put("/api/school/current", payload)).data;
+export const getActiveAcademicYear = async () => (await api.get("/api/school/current/active-academic-year")).data;
+export const updateActiveAcademicYear = async (academic_year_id) => (await api.put("/api/school/current/active-academic-year", { academic_year_id })).data;
+export const getCurrentSchoolLogo = async () => (await api.get("/api/school/current/logo")).data;
+export const uploadCurrentSchoolLogo = async (file) => { const data = new FormData(); data.append("logo", file); const result = (await api.post("/api/school/current/logo", data)).data; window.dispatchEvent(new Event("school-logo-changed")); return result; };
+export const deleteCurrentSchoolLogo = async () => { const result = (await api.delete("/api/school/current/logo")).data; window.dispatchEvent(new Event("school-logo-changed")); return result; };
 
 export const getSchools = async () => {
   const response = await api.get("/api/schools");

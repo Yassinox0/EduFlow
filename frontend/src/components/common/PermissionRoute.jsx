@@ -1,0 +1,2 @@
+import useAuth from "../../hooks/useAuth";
+export default function PermissionRoute({ permission, children }) { const { user, can, permissionsLoading } = useAuth(); if (permissionsLoading) return <section className="panel">Vérification des autorisations…</section>; if (!user || !can(permission)) return <section className="panel"><h2>403 — Accès non autorisé</h2><p className="muted">Vous n’avez pas les droits nécessaires pour accéder à cette page.</p></section>; return children; }

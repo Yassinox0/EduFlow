@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import useI18n from "../hooks/useI18n";
 import { downloadReceiptPdf } from "../services/receiptService";
+import { downloadStudentPaymentsPdf } from "../services/paymentDocumentService";
 import { getStudentById, uploadStudentPhoto } from "../services/studentService";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8080").replace(/\/+$/, "");
@@ -37,6 +38,7 @@ export default function StudentDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [downloadingId, setDownloadingId] = useState(null);
+  const [exportingPayments, setExportingPayments] = useState(false);
   const [error, setError] = useState("");
 
   const loadStudent = () => {
@@ -80,6 +82,19 @@ export default function StudentDetailsPage() {
       setError(t("payments.downloadError"));
     } finally {
       setDownloadingId(null);
+    }
+  };
+
+  const exportPaymentHistory = async () => {
+    if (exportingPayments) return;
+    setExportingPayments(true);
+    setError("");
+    try {
+      await downloadStudentPaymentsPdf(id, {});
+    } catch {
+      setError("Impossible d’exporter l’historique des paiements.");
+    } finally {
+      setExportingPayments(false);
     }
   };
 
@@ -168,7 +183,7 @@ export default function StudentDetailsPage() {
       </section>
 
       <section className="panel">
-        <div className="panel-header"><div><h3>{t("studentProfile.paymentHistory")}</h3><p className="muted">{t("studentProfile.paymentHistoryHelp")}</p></div></div>
+        <div className="panel-header"><div><h3>{t("studentProfile.paymentHistory")}</h3><p className="muted">{t("studentProfile.paymentHistoryHelp")}</p></div><button type="button" onClick={exportPaymentHistory} disabled={exportingPayments}>{exportingPayments ? "Export en cours…" : "Exporter l’historique PDF"}</button></div>
         <div className="table-wrap"><table><thead><tr><th>{t("payments.receiptNumber")}</th><th>{t("common.date")}</th><th>{t("payments.period")}</th><th>{t("common.amount")}</th><th>{t("payments.method")}</th><th>{t("common.actions")}</th></tr></thead><tbody>
           {(details.payments || []).map((payment) => <tr key={payment.id}><td>{payment.receipt_number || `REC-${String(payment.id).padStart(6, "0")}`}</td><td>{formatDate(payment.payment_date, language)}</td><td>{t(`months.${String(payment.month_label).padStart(2, "0")}`)} {payment.year_value}</td><td>{formatMoney(payment.amount_paid, language)}</td><td>{paymentMethodLabel(payment.payment_method_label || payment.payment_method, t)}</td><td><div className="table-actions"><Link className="secondary-btn button-link" to={`/finances/payments/${payment.id}`}>{t("common.details")}</Link><button type="button" onClick={() => downloadReceipt(payment.id)} disabled={downloadingId === payment.id}>{t("payments.downloadReceipt")}</button></div></td></tr>)}
           {!(details.payments || []).length && <tr><td colSpan="6" className="table-empty">{t("studentProfile.noPayments")}</td></tr>}

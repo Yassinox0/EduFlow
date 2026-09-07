@@ -62,4 +62,16 @@ class PaymentController
 
         Response::json($result);
     }
+
+    public function cancel(): void
+    {
+        $id = (int)Request::param('id', 0);
+        $result = (new PaymentService())->cancel($id, Request::json());
+        if (isset($result['error'])) {
+            $status = $result['error'] === 'Payment not found' ? 404 : 422;
+            Response::json(['message' => $result['error']], $status);
+        }
+
+        Response::json($result);
+    }
 }
