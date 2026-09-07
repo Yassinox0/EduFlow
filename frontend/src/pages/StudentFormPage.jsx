@@ -1,31 +1,234 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { getClassLevelFees, getClassLevels } from "../services/classLevelService";
-import { getAcademicYears } from "../services/academicYearService";
-import { checkMassarCode, createStudent, getMatriculePreview, getStudent, updateStudent } from "../services/studentService";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { DEFAULT_LEVEL_OPTIONS } from "../config/schoolOptions";
+import { getClassLevels } from "../services/classLevelService";
+import { createStudent, getStudentById, updateStudent } from "../services/studentService";
+import useI18n from "../hooks/useI18n";
 
-const initial = { internal_number:"", massar_code:"", cne:"", last_name:"", first_name:"", last_name_ar:"", first_name_ar:"", date_of_birth:"", birth_place:"", gender:"", entry_date:"", school_year:"", class_level_id:"", class_name:"", parent_name:"", parent_phone:"", monthly_amount:"0", discount_percent:"0", uses_transport:false, status:"PRE_REGISTERED" };
-const Field = ({ label, children }) => <label className="student-field"><span>{label}</span>{children}</label>;
-const cleanMassar = (value) => value.replace(/\s+/g, "").toUpperCase();
+const emptyForm = {
+  first_name: "",
+  last_name: "",
+  date_of_birth: "",
+  gender: "",
+  address: "",
+  class_level_id: "",
+  class_name: "",
+  school_year: "",
+  status: "ACTIVE",
+  parent_name: "",
+  parent_phone: "",
+  monthly_amount: "",
+  discount_percent: "0",
+};
+
+const formatMoney = (value, language) =>
+  new Intl.NumberFormat(language === "ar" ? "ar-MA" : "fr-MA", {
+    style: "currency",
+    currency: "MAD",
+  }).format(Number(value || 0));
 
 export default function StudentFormPage() {
-  const { id } = useParams(); const editing = Boolean(id); const navigate = useNavigate();
-  const [form, setForm] = useState(initial), [levels, setLevels] = useState([]), [years, setYears] = useState([]), [error, setError] = useState(""), [preview, setPreview] = useState(false), [saving, setSaving] = useState(false), [loading, setLoading] = useState(editing);
-  const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
-  const selectedLevel = useMemo(() => levels.find((level) => String(level.id) === String(form.class_level_id)), [levels, form.class_level_id]);
-  const selectedYear = useMemo(() => years.find((year) => year.label === form.school_year), [years, form.school_year]);
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { language, t } = useI18n();
+  const [form, setForm] = useState(emptyForm);
+  const [classLevels, setClassLevels] = useState([]);
+  const [pageLoading, setPageLoading] = useState(Boolean(id));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const editing = Boolean(id);
 
   useEffect(() => {
-    Promise.all([getClassLevels(), getAcademicYears()]).then(([classLevels, academicYears]) => { setLevels(Array.isArray(classLevels) ? classLevels : []); setYears(Array.isArray(academicYears) ? academicYears : []); }).catch(() => setError("Impossible de charger les références scolaires."));
-    if (editing) getStudent(id).then((student) => { setForm({ ...initial, ...student, internal_number:student.internal_number || "", massar_code:student.massar_code || "", cne:student.cne || "", date_of_birth:student.date_of_birth || "", birth_place:student.birth_place || "", entry_date:student.entry_date || "", class_level_id:student.class_level_id ? String(student.class_level_id) : "", monthly_amount:String(student.monthly_amount ?? 0), discount_percent:String(student.discount_percent ?? 0), parent_phone:student.parent_phone || student.phone || "", uses_transport:Boolean(Number(student.uses_transport)), status:student.status || "PRE_REGISTERED" }); }).catch(() => setError("Élève introuvable.")).finally(() => setLoading(false));
-    else getMatriculePreview().then((result) => set("internal_number", result.internal_number || "")).catch(() => setError("Impossible de proposer un matricule."));
+    let active = true;
+
+    const loadForm = async () => {
+      setPageLoading(editing);
+      setError("");
+
+      try {
+        const requests = [getClassLevels()];
+        if (editing) requests.push(getStudentById(id));
+        const [levelData, profileData] = await Promise.all(requests);
+        if (!active) return;
+
+        const normalizedLevels = Array.isArray(levelData) ? levelData : [];
+        setClassLevels(normalizedLevels);
+
+        if (editing) {
+          const student = profileData?.student || profileData;
+          const parent = profileData?.parent || {};
+          setForm({
+            first_name: student?.first_name || "",
+            last_name: student?.last_name || "",
+            date_of_birth: student?.date_of_birth || "",
+            gender: student?.gender || "",
+            address: student?.address || "",
+            class_level_id: normalizedLevels.length
+              ? String(student?.class_level_id || "")
+              : String(student?.class_level_name || student?.class_level || ""),
+            class_name: student?.class_name || student?.class_group_name || "",
+            school_year: student?.school_year || "",
+            status: student?.status || "ACTIVE",
+            parent_name: student?.parent_name || parent?.name || "",
+            parent_phone: parent?.phone || student?.parent_phone || student?.phone || "",
+            monthly_amount: student?.monthly_amount != null ? String(student.monthly_amount) : "",
+            discount_percent: student?.discount_percent != null ? String(student.discount_percent) : "0",
+          });
+        }
+      } catch (err) {
+        setError(editing ? t("studentProfile.loadError") : t("students.loadLevelsError"));
+      } finally {
+        if (active) setPageLoading(false);
+      }
+    };
+
+    loadForm();
+    return () => {
+      active = false;
+    };
   }, [editing, id]);
 
-  const chooseLevel = async (value) => { set("class_level_id", value); if (!value) return; try { const fees = await getClassLevelFees(value); set("monthly_amount", String(fees.monthly_amount ?? 0)); } catch { setError("Impossible de récupérer la mensualité du niveau."); } };
-  const validate = async (event) => { event.preventDefault(); setError(""); if (!form.internal_number.trim() || !form.last_name.trim() || !form.first_name.trim() || !form.class_level_id) return setError("Veuillez renseigner le matricule, le nom, le prénom et le niveau scolaire."); const massar = cleanMassar(form.massar_code); if (massar) { try { const result = await checkMassarCode(massar, editing ? id : undefined); if (!result.available) return setError("Ce Code Massar est déjà utilisé dans cet établissement."); } catch { return setError("La vérification du Code Massar a échoué."); } } setForm((current) => ({ ...current, massar_code:massar })); setPreview(true); };
-  const confirm = async () => { if (saving) return; setSaving(true); setError(""); const payload = { ...form, internal_number:form.internal_number.trim(), massar_code:cleanMassar(form.massar_code), cne:form.cne.trim() || null, last_name:form.last_name.trim(), first_name:form.first_name.trim(), last_name_ar:form.last_name_ar.trim() || null, first_name_ar:form.first_name_ar.trim() || null, date_of_birth:form.date_of_birth || null, birth_place:form.birth_place.trim() || null, entry_date:form.entry_date || null, class_level_id:Number(form.class_level_id), class_name:form.class_name.trim() || null, parent_name:form.parent_name.trim() || null, parent_phone:form.parent_phone.trim() || null, school_year:form.school_year || null, academic_year_id:selectedYear?.id || null, monthly_amount:Number(form.monthly_amount || 0), discount_percent:Number(form.discount_percent || 0), uses_transport:Boolean(form.uses_transport), status:form.status };
-    try { const result = editing ? await updateStudent(id, payload) : await createStudent(payload); navigate(`/students/${editing ? id : result.id}`, { state:{ created:!editing } }); } catch (requestError) { setPreview(false); setError(requestError?.response?.data?.message || "Enregistrement impossible. Vérifiez les informations saisies."); } finally { setSaving(false); }
+  const levelOptions = useMemo(() => {
+    if (classLevels.length) {
+      return classLevels.map((item) => ({ id: String(item.id), name: item.name }));
+    }
+
+    return DEFAULT_LEVEL_OPTIONS.map((item) => ({ id: item.value, name: t(item.translationKey) }));
+  }, [classLevels, t]);
+
+  const effectiveAmount = useMemo(() => {
+    const amount = Number(form.monthly_amount || 0);
+    const discount = Number(form.discount_percent || 0);
+    return Math.max(amount * ((100 - discount) / 100), 0);
+  }, [form.discount_percent, form.monthly_amount]);
+
+  const updateField = (field, value) => {
+    setForm((current) => ({ ...current, [field]: value }));
   };
-  if (loading) return <section className="panel">Chargement du dossier…</section>;
-  return <div className="admin-grid"><section className="panel"><h2>{editing ? "Modifier le dossier élève" : "Nouveau dossier élève"}</h2><p className="muted">Les champs marqués d’un astérisque sont obligatoires.</p></section><form className="student-form" onSubmit={validate}><section className="panel"><h3>Identité</h3><div className="form-grid student-sections"><Field label="Matricule interne *"><input value={form.internal_number} onChange={(e) => set("internal_number", e.target.value)} required /></Field><Field label="Code Massar"><input value={form.massar_code} onChange={(e) => set("massar_code", cleanMassar(e.target.value))} /></Field><Field label="CNE"><input value={form.cne} onChange={(e) => set("cne", e.target.value)} /></Field><Field label="Nom en français *"><input value={form.last_name} onChange={(e) => set("last_name", e.target.value)} required /></Field><Field label="Prénom en français *"><input value={form.first_name} onChange={(e) => set("first_name", e.target.value)} required /></Field><Field label="Nom en arabe"><input dir="rtl" value={form.last_name_ar} onChange={(e) => set("last_name_ar", e.target.value)} /></Field><Field label="Prénom en arabe"><input dir="rtl" value={form.first_name_ar} onChange={(e) => set("first_name_ar", e.target.value)} /></Field><Field label="Date de naissance"><input type="date" value={form.date_of_birth} onChange={(e) => set("date_of_birth", e.target.value)} /></Field><Field label="Lieu de naissance"><input value={form.birth_place} onChange={(e) => set("birth_place", e.target.value)} /></Field><Field label="Sexe"><select value={form.gender} onChange={(e) => set("gender", e.target.value)}><option value="">Non renseigné</option><option value="F">Fille</option><option value="M">Garçon</option></select></Field><Field label="Date d’entrée"><input type="date" value={form.entry_date} onChange={(e) => set("entry_date", e.target.value)} /></Field></div></section><section className="panel"><h3>Scolarité et responsable</h3><div className="form-grid student-sections"><Field label="Statut"><select value={form.status} onChange={(e) => set("status", e.target.value)}><option value="PRE_REGISTERED">Préinscrit</option><option value="REGISTERED">Inscrit</option></select></Field><Field label="Année scolaire"><select value={form.school_year} onChange={(e) => set("school_year", e.target.value)}><option value="">Choisir une année</option>{years.map((year) => <option key={year.id} value={year.label}>{year.label}</option>)}</select></Field><Field label="Niveau scolaire *"><select value={form.class_level_id} onChange={(e) => chooseLevel(e.target.value)} required><option value="">Choisir un niveau</option>{levels.map((level) => <option key={level.id} value={level.id}>{level.level_name || level.name}</option>)}</select></Field><Field label="Classe"><input value={form.class_name} onChange={(e) => set("class_name", e.target.value)} placeholder="Ex. 1A" /></Field><Field label="Responsable principal"><input value={form.parent_name} onChange={(e) => set("parent_name", e.target.value)} /></Field><Field label="Téléphone du responsable"><input value={form.parent_phone} onChange={(e) => set("parent_phone", e.target.value)} /></Field><Field label="Mensualité (MAD)"><input value={form.monthly_amount} readOnly /></Field><Field label="Réduction (%)"><input type="number" min="0" max="100" value={form.discount_percent} onChange={(e) => set("discount_percent", e.target.value)} /></Field><Field label="Transport scolaire"><div className="radio-row"><label><input type="radio" checked={form.uses_transport} onChange={() => set("uses_transport", true)} /> Oui</label><label><input type="radio" checked={!form.uses_transport} onChange={() => set("uses_transport", false)} /> Non</label></div><small>Aucun frais de transport n’est facturé à cette étape.</small></Field></div></section>{error && <p className="error-text">{error}</p>}<div className="form-actions"><button type="button" className="secondary-btn" onClick={() => navigate(editing ? `/students/${id}` : "/students")}>Annuler</button><button type="submit">Aperçu du dossier</button></div></form>{preview && <div className="preview-overlay" role="dialog" aria-modal="true" aria-labelledby="preview-title"><section className="panel preview-card"><h3 id="preview-title">Aperçu du dossier</h3><dl className="preview-list"><dt>Identité</dt><dd>{form.last_name} {form.first_name}<br /><span dir="rtl">{form.last_name_ar} {form.first_name_ar}</span></dd><dt>Matricule</dt><dd>{form.internal_number}</dd><dt>Code Massar / CNE</dt><dd>{form.massar_code || "—"} / {form.cne || "—"}</dd><dt>Statut</dt><dd>{form.status === "REGISTERED" ? "Inscrit" : "Préinscrit"}</dd><dt>Année scolaire</dt><dd>{form.school_year || "—"}</dd><dt>Cycle, niveau et classe</dt><dd>{selectedLevel?.cycle_label || "—"} · {selectedLevel?.level_name || selectedLevel?.name || "—"} · {form.class_name || "—"}</dd><dt>Responsable principal</dt><dd>{form.parent_name || "—"}{form.parent_phone ? ` · ${form.parent_phone}` : ""}</dd><dt>Montant mensuel</dt><dd>{form.monthly_amount} MAD</dd><dt>Réduction</dt><dd>{form.discount_percent}%</dd><dt>Transport</dt><dd>{form.uses_transport ? "Oui" : "Non"}</dd></dl><div className="form-actions"><button type="button" className="secondary-btn" disabled={saving} onClick={() => setPreview(false)}>Retour et modifier</button><button type="button" disabled={saving} onClick={confirm}>{saving ? "Enregistrement…" : form.status === "REGISTERED" ? "Confirmer l’inscription" : "Confirmer la préinscription"}</button></div></section></div>}</div>;
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+
+    try {
+      const selectedClassLevelId = classLevels.length ? Number(form.class_level_id) : null;
+      if (!form.class_level_id) {
+        setError(t("students.chooseLevel"));
+        return;
+      }
+
+      const payload = {
+        first_name: form.first_name.trim(),
+        last_name: form.last_name.trim(),
+        date_of_birth: form.date_of_birth || null,
+        gender: form.gender || null,
+        address: form.address.trim() || null,
+        class_level_id: selectedClassLevelId || undefined,
+        class_level: classLevels.length ? undefined : form.class_level_id,
+        class_name: form.class_name.trim() || null,
+        school_year: form.school_year.trim() || null,
+        status: form.status,
+        parent_name: form.parent_name.trim(),
+        parent_phone: form.parent_phone.trim(),
+        monthly_amount: Number(form.monthly_amount || 0),
+        discount_percent: Number(form.discount_percent || 0),
+      };
+
+      const result = editing ? await updateStudent(id, payload) : await createStudent(payload);
+      navigate(`/students/${result?.id || id}`);
+    } catch (err) {
+      setError(t("students.saveError"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (pageLoading) {
+    return <section className="panel student-form-state">{t("common.loading")}</section>;
+  }
+
+  return (
+    <div className="admin-grid student-form-page">
+      <section className="panel hero-modern panel-header student-form-header">
+        <div>
+          <p className="brand-kicker">{t("students.directoryKicker")}</p>
+          <h2>{editing ? t("students.edit") : t("students.create")}</h2>
+          <p className="muted">
+            {editing ? t("students.editDescription") : t("students.createDescription")}
+          </p>
+        </div>
+        <Link className="secondary-btn button-link" to={editing ? `/students/${id}` : "/students"}>
+          {t("students.backToDirectory")}
+        </Link>
+      </section>
+
+      <form className="student-record-form" onSubmit={handleSubmit}>
+        <div className="student-form-layout">
+          <section className="panel student-form-section">
+            <div className="student-form-section-header">
+              <span>01</span>
+              <div><h3>{t("students.identitySection")}</h3><p>{t("students.identitySectionHelp")}</p></div>
+            </div>
+            <div className="student-form-grid">
+              <label><span>{t("common.firstName")}</span><input value={form.first_name} onChange={(event) => updateField("first_name", event.target.value)} required /></label>
+              <label><span>{t("common.lastName")}</span><input value={form.last_name} onChange={(event) => updateField("last_name", event.target.value)} required /></label>
+              <label><span>{t("students.birthDate")}</span><input type="date" value={form.date_of_birth} onChange={(event) => updateField("date_of_birth", event.target.value)} /></label>
+              <label><span>{t("students.gender")}</span><select value={form.gender} onChange={(event) => updateField("gender", event.target.value)}><option value="">{t("genders.unspecified")}</option><option value="F">{t("genders.female")}</option><option value="M">{t("genders.male")}</option></select></label>
+              <label className="student-form-full-field"><span>{t("common.address")}</span><textarea value={form.address} onChange={(event) => updateField("address", event.target.value)} /></label>
+            </div>
+          </section>
+
+          <section className="panel student-form-section">
+            <div className="student-form-section-header">
+              <span>02</span>
+              <div><h3>{t("students.schoolingSection")}</h3><p>{t("students.schoolingSectionHelp")}</p></div>
+            </div>
+            <div className="student-form-grid">
+              <label><span>{t("common.level")}</span><select value={form.class_level_id} onChange={(event) => updateField("class_level_id", event.target.value)} required><option value="">{t("students.chooseLevel")}</option>{levelOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+              <label><span>{t("common.class")}</span><input value={form.class_name} onChange={(event) => updateField("class_name", event.target.value)} placeholder={t("students.classPlaceholder")} /></label>
+              <label><span>{t("common.schoolYear")}</span><input value={form.school_year} onChange={(event) => updateField("school_year", event.target.value)} placeholder={t("students.schoolYearPlaceholder")} /></label>
+              <label><span>{t("common.status")}</span><select value={form.status} onChange={(event) => updateField("status", event.target.value)}><option value="ACTIVE">{t("statuses.active")}</option><option value="INACTIVE">{t("statuses.inactive")}</option></select></label>
+            </div>
+          </section>
+
+          <section className="panel student-form-section">
+            <div className="student-form-section-header">
+              <span>03</span>
+              <div><h3>{t("students.familySection")}</h3><p>{t("students.familySectionHelp")}</p></div>
+            </div>
+            <div className="student-form-grid">
+              <label><span>{t("students.parentName")}</span><input value={form.parent_name} onChange={(event) => updateField("parent_name", event.target.value)} required /></label>
+              <label><span>{t("students.parentPhone")}</span><input type="tel" dir="ltr" value={form.parent_phone} onChange={(event) => updateField("parent_phone", event.target.value)} required /></label>
+            </div>
+          </section>
+
+          <section className="panel student-form-section">
+            <div className="student-form-section-header">
+              <span>04</span>
+              <div><h3>{t("students.billingSection")}</h3><p>{t("students.billingSectionHelp")}</p></div>
+            </div>
+            <div className="student-form-grid">
+              <label><span>{t("students.monthlyAmount")}</span><input type="number" min="0" step="0.01" value={form.monthly_amount} onChange={(event) => updateField("monthly_amount", event.target.value)} required /></label>
+              <label><span>{t("students.discount")}</span><input type="number" min="0" max="100" step="0.01" value={form.discount_percent} onChange={(event) => updateField("discount_percent", event.target.value)} /></label>
+              <div className="student-net-fee student-form-full-field"><span>{t("students.netMonthlyFee")}</span><strong>{formatMoney(effectiveAmount, language)}</strong><small>{t("students.netMonthlyFeeHelp")}</small></div>
+            </div>
+          </section>
+        </div>
+
+        <section className="panel student-form-footer">
+          <div>
+            <strong>{t("students.formReadyTitle")}</strong>
+            <p className="muted">{t("students.formReadyHelp")}</p>
+            {error && <p className="error-text student-feedback">{error}</p>}
+          </div>
+          <div className="student-form-actions">
+            <Link className="secondary-btn button-link" to={editing ? `/students/${id}` : "/students"}>{t("common.cancel")}</Link>
+            <button type="submit" disabled={saving}>{saving ? t("common.saving") : (editing ? t("common.save") : t("students.createAction"))}</button>
+          </div>
+        </section>
+      </form>
+    </div>
+  );
 }

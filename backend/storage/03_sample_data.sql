@@ -21,7 +21,7 @@ INSERT INTO schools (
 INSERT INTO users (
     id, school_id, first_name, last_name, email, password, role, status, created_at
 ) VALUES
-(1, NULL, 'Super', 'Admin', 'superadmin@eduflow.com', '$2y$10$XqC2r7yA1DsOZLbOT26c7.BjeIZwBCaQkw7ARzfSjThu29oLdhw06', 'super_admin', 'ACTIVE', '2026-06-01 09:10:00'),
+(1, NULL, 'Super', 'Admin', 'superadmin@onecore.local', '$2y$10$XqC2r7yA1DsOZLbOT26c7.BjeIZwBCaQkw7ARzfSjThu29oLdhw06', 'super_admin', 'ACTIVE', '2026-06-01 09:10:00'),
 (2, 1, 'Karim', 'El Amrani', 'karim.elamrani@sainte-marie.edu', '$2y$10$ad5cZzLMfaVB7sCADtZZfeXrtK0nTFRGmgms3axprgTB0UFG6usvm', 'admin', 'ACTIVE', '2026-06-01 09:12:00');
 
 INSERT INTO class_levels (

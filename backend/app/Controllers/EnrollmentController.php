@@ -1,0 +1,40 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Controllers;
+
+use App\Core\Request;
+use App\Core\Response;
+use App\Services\EnrollmentService;
+
+class EnrollmentController
+{
+    public function index(): void
+    {
+        Response::json((new EnrollmentService())->getAll($_GET));
+    }
+
+    public function store(): void
+    {
+        $result = (new EnrollmentService())->create(Request::json());
+        $this->respond($result, 201);
+    }
+
+    public function update(): void
+    {
+        $id = (int)Request::param('id', 0);
+        $result = (new EnrollmentService())->update($id, Request::json());
+        $this->respond($result);
+    }
+
+    private function respond(array $result, int $successStatus = 200): void
+    {
+        if (isset($result['error'])) {
+            $status = $result['error'] === 'Enrollment not found' ? 404 : 422;
+            Response::json(['message' => $result['error']], $status);
+        }
+
+        Response::json($result, $successStatus);
+    }
+}

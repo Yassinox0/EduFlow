@@ -1,4 +1,4 @@
-# EduFlow
+# OneCore
 
 Application de gestion scolaire orientee finance:
 - eleves, classes, mensualites, paiements, impayes,
@@ -43,17 +43,20 @@ Importer la structure:
 mysql -h 127.0.0.1 -P 3307 -u root -p < backend/storage/01_schema.sql
 ```
 
-Importer les donnees:
-```bash
-mysql -h 127.0.0.1 -P 3307 -u root -p < backend/storage/02_data_dump.sql
+Appliquer ensuite toutes les migrations:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\migrate-database.ps1
 ```
+
+`02_data_dump.sql` est un ancien jeu de donnees local. Il ne fait pas partie de
+la synchronisation normale entre collaborateurs.
 
 ## 4) Configurer le backend
 Fichier `backend/.env`:
 ```env
 APP_ENV=local
 APP_DEBUG=true
-APP_NAME="Salma Project"
+APP_NAME="OneCore"
 APP_URL=http://localhost
 DB_HOST=127.0.0.1
 DB_PORT=3307
@@ -86,7 +89,7 @@ php -S 127.0.0.1:8080 -t public public/index.php
 Fichier `frontend/.env`:
 ```env
 VITE_API_URL=http://127.0.0.1:8080
-VITE_BRAND_NAME=EduFlow
+VITE_BRAND_NAME=OneCore
 VITE_SCHOOL_NAME=Votre ecole
 ```
 
@@ -100,16 +103,32 @@ npm run dev
 URL frontend: `http://localhost:5173`
 
 ## 7) Comptes de test
-- super admin: `owner@eduflow.com` / `owner123`
+- super admin: `owner@onecore.local` / `owner123`
 - admin: `yassine.benmansour@miranda.com` / `admin123`
 - user: `salma@miranda.com` / `user123`
+
+Initialiser ou actualiser les donnees de demonstration Miranda (environnement
+`local` uniquement):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\seed-demo.ps1
+```
+
+Comptes professeurs ajoutes:
+
+- francais: `yasmine.benmansour@miranda.com` / `Prof@123`
+- arabe: `yahia.benmansour@miranda.com` / `Prof@123`
+
+Le script est idempotent et ne supprime aucune donnee. Il prepare les roles,
+parents, eleves, inscriptions, affectations, horaires et cas de paiement
+`PAID`, `PARTIAL` et `UNPAID` utilises pour la demonstration.
 
 ## 8) Reset mot de passe (super admin)
 Endpoint:
 - `POST /api/users/{id}/reset-password`
 
 Mot de passe applique apres reset:
-- `EduFlow@123`
+- `OneCore@123`
 
 Regles:
 - seul `super_admin` peut reset les comptes,
@@ -135,53 +154,60 @@ Regles:
   - paiements recents,
   - top impayes.
 
-## 10) Synchroniser la base locale avec upstream
+## 10) Synchroniser la base de donnees
 
-Cette branche conserve les fonctionnalites locales (dossiers eleves, familles,
-charges et personnel) et integre les migrations du depot
-`https://github.com/Yassinox0/EduFlow`, revision
-`fbaadeb2351a8be2a78490ab45ef8b09232dfd43`.
+### Pour chaque collaborateur apres un `git pull`
 
-Depuis la racine du projet, avec PHP disponible (macOS, Linux ou Windows):
+Depuis PowerShell, a la racine du projet:
 
-```bash
-php backend/bin/sync-database.php --status
-php backend/bin/sync-database.php
-php backend/bin/sync-database.php --status
+```powershell
+git fetch upstream
+git merge upstream/main
+powershell -ExecutionPolicy Bypass -File .\migrate-database.ps1
+powershell -ExecutionPolicy Bypass -File .\migrate-database.ps1 -Status
 ```
 
-Faire une sauvegarde MySQL avant la premiere execution. Les sauvegardes locales
-restent dans `backend/storage/backups/`, ignore par Git. Ne pas reimporter
-`01_schema.sql` ou `02_data_dump.sql` pour synchroniser une base existante.
+Ces commandes appliquent uniquement les nouvelles migrations. Elles ne
+suppriment pas les donnees locales existantes.
 
-Le script ajoute les champs attendus par upstream tout en conservant `label`,
-`starts_on`, `ends_on` et les statuts scolaires locaux. Des triggers maintiennent
-les champs equivalents des annees scolaires dans les deux sens. Les inscriptions
-creees pour les eleves `REGISTERED` sont actives. Les relations parents existantes
-sont conservees sans rejouer l'ancien remplissage depuis le nom du parent.
+Pour ajouter ou actualiser les donnees de demonstration MIRANDA:
 
-Les migrations upstream sont conservees sans modification dans
-`backend/storage/upstream-migrations/`. Le registre `schema_migrations` enregistre
-leurs empreintes; `local_sync_steps` suit l'adaptation locale. Les anciens scripts
-locaux de `backend/storage/migrations/` ne sont pas rejoues automatiquement.
-Ne pas appeler directement `migrate-upstream.php` sur une base locale non adaptee.
-
-Le script utilise `backend/.env`. Pour une copie de test sur macOS/Linux:
-
-```bash
-DB_NAME=eduflow_sync_test php backend/bin/sync-database.php
+```powershell
+powershell -ExecutionPolicy Bypass -File .\seed-demo.ps1
 ```
 
-Les migrations importees ajoutent les inscriptions, affectations des professeurs,
-recus, notes et absences. Elles renomment egalement les anciens comptes super admin
-`owner@eduflow.com` et `superadmin@eduflow.com` en `owner@onecore.local` et
-`superadmin@onecore.local`, et marquent les comptes professeurs comme devant changer
-leur mot de passe. Les mots de passe existants sont conserves.
+Le seed est facultatif et reserve a `APP_ENV=local`.
 
-Cette commande applique la revision importee ci-dessus; elle ne telecharge pas de
-nouvelles migrations. Lors d'une prochaine mise a jour upstream, verifier les
-nouveaux fichiers sur une copie de la base avant de les integrer. Aucun jeu de
-donnees de demonstration n'est importe pendant cette synchronisation.
+### Lorsqu'un developpeur modifie la base
+
+1. Ne jamais modifier une migration deja poussee.
+2. Creer un nouveau fichier dans `backend/storage/migrations`:
+
+```text
+YYYY_MM_DD_NNN_description.sql
+```
+
+3. Ajouter les changements SQL dans cette nouvelle migration.
+4. Actualiser `backend/storage/01_schema.sql` pour les nouvelles installations.
+5. Tester localement:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\migrate-database.ps1
+powershell -ExecutionPolicy Bypass -File .\migrate-database.ps1 -Status
+```
+
+6. Commiter la migration avec le code qui l'utilise:
+
+```powershell
+git add backend/storage/01_schema.sql backend/storage/migrations
+git add .
+git commit -m "feat(database): describe the database change"
+git push upstream HEAD:main
+```
+
+Les fichiers `.env`, les sauvegardes MySQL, les photos uploadees et les
+donnees reelles des eleves, parents et paiements ne doivent jamais etre
+pousses.
 
 ## 11) Depannage rapide
 - Login "Identifiants invalides ou API indisponible":
@@ -189,6 +215,6 @@ donnees de demonstration n'est importe pendant cette synchronisation.
   - verifier `VITE_API_URL`,
   - verifier que MySQL tourne.
 - Erreurs SQL / tables manquantes:
-  - executer `php backend/bin/sync-database.php --status`, puis `php backend/bin/sync-database.php`.
+  - executer `.\migrate-database.ps1 -Status`, puis `.\migrate-database.ps1`.
 - Port MySQL occupe:
   - changer `-p 3307:3306` et `DB_PORT` en consequence.

@@ -10,6 +10,11 @@ export const getScheduleById = async (id) => {
   return response.data;
 };
 
+export const getScheduleWorkloads = async (params) => {
+  const response = await api.get("/api/schedules/workloads", { params });
+  return response.data;
+};
+
 export const createSchedule = async (payload) => {
   const response = await api.post("/api/schedules", payload);
   return response.data;
@@ -17,6 +22,11 @@ export const createSchedule = async (payload) => {
 
 export const updateSchedule = async (id, payload) => {
   const response = await api.put(`/api/schedules/${id}`, payload);
+  return response.data;
+};
+
+export const moveSchedule = async (id, payload) => {
+  const response = await api.put(`/api/schedules/${id}/move`, payload);
   return response.data;
 };
 

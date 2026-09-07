@@ -11,7 +11,7 @@ use PDOException;
 
 class TeacherService
 {
-    private const DEFAULT_PASSWORD = 'EduFlow@123';
+    private const DEFAULT_PASSWORD = 'OneCore@123';
 
     public function getAll(?int $requestedSchoolId = null): array
     {
@@ -48,6 +48,10 @@ class TeacherService
         } else {
             $sql .= ' AND u.school_id = ?';
             $params[] = $actorSchoolId;
+            if ($role === 'professeur') {
+                $sql .= ' AND u.id = ?';
+                $params[] = (int)($authUser['id'] ?? 0);
+            }
         }
 
         $stmt = $pdo->prepare($sql . ' ORDER BY u.first_name ASC, u.last_name ASC');
@@ -77,9 +81,9 @@ class TeacherService
             $stmt = $pdo->prepare('
                 INSERT INTO users (
                     school_id, first_name, last_name, email, password, role, status,
-                    gender, phone, address, primary_school
+                    gender, phone, address, primary_school, must_change_password
                 )
-                VALUES (?, ?, ?, ?, ?, "professeur", ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, "professeur", ?, ?, ?, ?, ?, 1)
             ');
             $stmt->execute([
                 $schoolId,
@@ -487,7 +491,7 @@ class TeacherService
 
     private function findTeacherById(int $teacherId): array|false
     {
-        $stmt = Database::connect()->prepare('SELECT * FROM users WHERE id = ? AND role IN ("professeur", "user") LIMIT 1');
+        $stmt = Database::connect()->prepare('SELECT * FROM users WHERE id = ? AND role = "professeur" LIMIT 1');
         $stmt->execute([$teacherId]);
         return $stmt->fetch() ?: false;
     }
@@ -495,7 +499,7 @@ class TeacherService
     private function generateUniqueEmail(string $baseLocal, int $schoolId, ?int $ignoreUserId = null): string
     {
         $school = $this->findSchool($schoolId);
-        $domain = strtolower((string)($school['email_domain'] ?? 'eduflow.local'));
+        $domain = strtolower((string)($school['email_domain'] ?? 'onecore.local'));
         $candidate = $baseLocal !== '' ? $baseLocal : 'professeur';
         $counter = 0;
         $pdo = Database::connect();

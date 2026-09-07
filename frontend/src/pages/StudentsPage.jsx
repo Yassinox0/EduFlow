@@ -1,431 +1,342 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { DEFAULT_LEVEL_OPTIONS } from "../config/schoolOptions";
 import { getClassLevels } from "../services/classLevelService";
-import { createStudent, deleteStudent, getStudents, updateStudent } from "../services/studentService";
+import { deleteStudent, getStudents } from "../services/studentService";
+import useAuth from "../hooks/useAuth";
+import useI18n from "../hooks/useI18n";
 
-const formatMoney = (value) =>
-  new Intl.NumberFormat("fr-MA", { style: "currency", currency: "MAD" }).format(
-    Number(value || 0)
-  );
-
-const emptyForm = {
-  first_name: "",
+const emptyFilters = {
   last_name: "",
-  date_of_birth: "",
-  gender: "",
+  first_name: "",
+  class_level: "",
   class_name: "",
-  parent_name: "",
-  parent_phone: "",
-  address: "",
-  monthly_amount: "",
-  discount_percent: "0",
-  school_year: "",
-  class_level_id: "",
-  status: "ACTIVE",
 };
 
+const formatMoney = (value, language) =>
+  new Intl.NumberFormat(language === "ar" ? "ar-MA" : "fr-MA", {
+    style: "currency",
+    currency: "MAD",
+  }).format(Number(value || 0));
+
 export default function StudentsPage() {
-  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { language, t } = useI18n();
   const [students, setStudents] = useState([]);
+  const [allStudents, setAllStudents] = useState([]);
   const [classLevels, setClassLevels] = useState([]);
-  const [form, setForm] = useState(emptyForm);
-  const [filters, setFilters] = useState({
-    last_name: "",
-    first_name: "",
-    class_level: "",
-    class_name: "",
-  });
-  const [editingId, setEditingId] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [searchApplied, setSearchApplied] = useState(false);
+  const [filters, setFilters] = useState(emptyFilters);
+  const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [selectedIds, setSelectedIds] = useState([]);
 
-  const loadClassLevels = async () => {
-    const levelsData = await getClassLevels();
-    setClassLevels(Array.isArray(levelsData) ? levelsData : []);
-  };
+  const canManageStudents = user?.role === "admin";
 
   useEffect(() => {
-    loadClassLevels().catch(() => setError("Impossible de charger les niveaux."));
-  }, []);
+    let active = true;
 
-  const averageMonthlyFee = useMemo(() => {
-    if (!students.length) {
-      return 0;
-    }
-    const total = students.reduce((sum, item) => sum + Number(item.monthly_amount || 0), 0);
-    return total / students.length;
-  }, [students]);
+    const loadDirectory = async () => {
+      setLoading(true);
+      setError("");
+
+      try {
+        const [studentResult, levelResult] = await Promise.allSettled([getStudents(), getClassLevels()]);
+        if (!active) return;
+        if (studentResult.status !== "fulfilled") throw studentResult.reason;
+
+        const normalizedStudents = Array.isArray(studentResult.value) ? studentResult.value : [];
+        setStudents(normalizedStudents);
+        setAllStudents(normalizedStudents);
+        if (levelResult.status === "fulfilled") {
+          setClassLevels(Array.isArray(levelResult.value) ? levelResult.value : []);
+        } else {
+          setClassLevels([]);
+          setError(t("students.loadLevelsError"));
+        }
+      } catch (err) {
+        if (active) setError(t("students.searchError"));
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    loadDirectory();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const levelOptions = useMemo(() => {
     if (classLevels.length) {
-      return classLevels.map((item) => ({ id: item.id, name: item.name, fromDatabase: true }));
+      return classLevels.map((item) => ({ id: item.id, name: item.name }));
     }
 
-    return DEFAULT_LEVEL_OPTIONS.map((name) => ({ id: name, name, fromDatabase: false }));
-  }, [classLevels]);
+    return DEFAULT_LEVEL_OPTIONS.map((item) => ({ id: item.value, name: t(item.translationKey) }));
+  }, [classLevels, t]);
 
-  const hasActiveFilters = useMemo(
-    () => Object.values(filters).some((value) => String(value || "").trim() !== ""),
-    [filters]
-  );
+  const directoryStats = useMemo(() => {
+    const total = allStudents.length;
+    const active = allStudents.filter((student) => student.status !== "INACTIVE").length;
+    const inactive = total - active;
+    const totalMonthlyFees = allStudents.reduce(
+      (sum, student) => sum + Number(student.monthly_amount || 0),
+      0
+    );
 
-  const filteredStudents = students;
-  const selectedStudents = filteredStudents.filter((student) => selectedIds.includes(student.id));
-  const selectedFinancials = useMemo(() => selectedStudents.reduce((total, student) => ({ monthly: total.monthly + Number(student.monthly_amount || 0), paid: total.paid + Number(student.financial_paid || 0), remaining: total.remaining + Number(student.financial_remaining || 0) }), { monthly: 0, paid: 0, remaining: 0 }), [selectedStudents]);
+    return {
+      total,
+      active,
+      inactive,
+      averageFee: total ? totalMonthlyFees / total : 0,
+    };
+  }, [allStudents]);
 
-  const effectiveAmountPreview = useMemo(() => {
-    const amount = Number(form.monthly_amount || 0);
-    const discount = Number(form.discount_percent || 0);
-    const net = amount * ((100 - discount) / 100);
-    return net > 0 ? net : 0;
-  }, [form.discount_percent, form.monthly_amount]);
+  const buildFilterParams = (currentFilters) => ({
+    last_name: currentFilters.last_name || undefined,
+    first_name: currentFilters.first_name || undefined,
+    class_level: currentFilters.class_level || undefined,
+    class_name: currentFilters.class_name || undefined,
+  });
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const applyStudentFilters = async (event) => {
+    event.preventDefault();
     setError("");
     setMessage("");
     setLoading(true);
 
     try {
-      const classLevelId = form.class_level_id ? Number(form.class_level_id) : null;
-      const selectedFallbackLevel = !classLevels.length ? form.class_level_id : "";
-      if (!classLevelId && !selectedFallbackLevel) {
-        throw new Error("Veuillez selectionner un niveau scolaire.");
-      }
-
-      const payload = {
-        first_name: form.first_name.trim(),
-        last_name: form.last_name.trim(),
-        date_of_birth: form.date_of_birth || null,
-        gender: form.gender.trim() || null,
-        class_name: form.class_name.trim() || null,
-        parent_name: form.parent_name.trim(),
-        parent_phone: form.parent_phone.trim(),
-        address: form.address.trim() || null,
-        monthly_amount: Number(form.monthly_amount || 0),
-        discount_percent: Number(form.discount_percent || 0),
-        school_year: form.school_year.trim() || null,
-        class_level_id: classLevelId || undefined,
-        class_level: selectedFallbackLevel || undefined,
-        status: form.status,
-      };
-
-      if (editingId) {
-        await updateStudent(editingId, payload);
-        setMessage("Eleve modifie avec succes.");
-      } else {
-        await createStudent(payload);
-        setMessage("Eleve cree avec succes.");
-      }
-      setForm(emptyForm);
-      setEditingId(null);
-      if (searchApplied) {
-        await applyStudentFilters();
-      }
-    } catch (err) {
-      setError(err?.response?.data?.message || err?.message || "Echec de creation eleve.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleEdit = (student) => navigate(`/students/${student.id}/edit`);
-
-  const handleDelete = async (student) => {
-    const confirmed = window.confirm(`Supprimer l'eleve ${student.first_name} ${student.last_name} ?`);
-    if (!confirmed) {
-      return;
-    }
-
-    setError("");
-    setMessage("");
-    try {
-      await deleteStudent(student.id);
-      setMessage("Eleve supprime avec succes.");
-      if (editingId === student.id) {
-        setEditingId(null);
-        setForm(emptyForm);
-      }
-      if (searchApplied) {
-        await applyStudentFilters();
-      }
-    } catch (err) {
-      setError(err?.response?.data?.message || "Echec de suppression eleve.");
-    }
-  };
-
-  const applyStudentFilters = async (e) => {
-    if (e) {
-      e.preventDefault();
-    }
-
-    setError("");
-    setMessage("");
-
-    if (!hasActiveFilters) {
-      setStudents([]);
-      setSearchApplied(false);
-      setError("Veuillez saisir une recherche ou choisir un filtre.");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const data = await getStudents({
-        last_name: filters.last_name || undefined,
-        first_name: filters.first_name || undefined,
-        class_level: filters.class_level || undefined,
-        class_name: filters.class_name || undefined,
-      });
+      const data = await getStudents(buildFilterParams(filters));
       setStudents(Array.isArray(data) ? data : []);
-      setSearchApplied(true);
     } catch (err) {
       setStudents([]);
-      setSearchApplied(false);
-      setError(err?.response?.data?.message || "Impossible de charger les eleves.");
+      setError(t("students.searchError"));
     } finally {
       setLoading(false);
     }
   };
 
   const resetFilters = () => {
-    setFilters({ last_name: "", first_name: "", class_level: "", class_name: "" });
-    setStudents([]);
-    setSearchApplied(false);
+    setFilters(emptyFilters);
+    setStudents(allStudents);
     setError("");
     setMessage("");
   };
 
+  const handleDelete = async (student) => {
+    const fullName = `${student.first_name} ${student.last_name}`.trim();
+    if (!window.confirm(t("students.confirmDelete", { name: fullName }))) return;
+
+    setDeletingId(student.id);
+    setError("");
+    setMessage("");
+
+    try {
+      await deleteStudent(student.id);
+      const refreshedStudents = await getStudents();
+      const normalizedStudents = Array.isArray(refreshedStudents) ? refreshedStudents : [];
+      setAllStudents(normalizedStudents);
+
+      const hasFilters = Object.values(filters).some((value) => String(value || "").trim() !== "");
+      if (hasFilters) {
+        const filteredData = await getStudents(buildFilterParams(filters));
+        setStudents(Array.isArray(filteredData) ? filteredData : []);
+      } else {
+        setStudents(normalizedStudents);
+      }
+
+      setMessage(t("students.deleted"));
+    } catch (err) {
+      setError(t("students.deleteError"));
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
-    <div className="admin-grid">
-      <section className="panel students-page-header">
+    <div className="admin-grid student-directory-page">
+      <section className="panel hero-modern panel-header student-directory-header">
         <div>
-          <h2>Eleves</h2>
-          <p className="muted">
-            Création et suivi des élèves, niveaux et mensualités.
-          </p>
+          <p className="brand-kicker">{t("students.directoryKicker")}</p>
+          <h2>{t("students.directoryTitle")}</h2>
+          <p className="muted">{t("students.directoryDescription")}</p>
         </div>
-        <Link className="primary-link-btn" to="/students/new">+ Nouvel élève</Link>
+        {canManageStudents && (
+          <Link className="button-link student-add-button" to="/students/new">
+            <span aria-hidden="true">+</span>
+            {t("students.create")}
+          </Link>
+        )}
       </section>
 
-      <section className="kpi-grid two-col">
-        <article className="panel kpi">
-          <p className="kpi-label">Eleves inscrits</p>
-          <h2>{students.length}</h2>
-          <p className="muted">Dossiers actifs dans la plateforme</p>
+      <section className="student-directory-kpis" aria-label={t("students.directoryOverview")}>
+        <article className="panel student-directory-kpi">
+          <span className="student-kpi-icon student-kpi-icon-blue" aria-hidden="true">01</span>
+          <div><p>{t("students.totalStudents")}</p><strong>{directoryStats.total}</strong></div>
         </article>
-        <article className="panel kpi">
-          <p className="kpi-label">Mensualite moyenne</p>
-          <h2>{formatMoney(averageMonthlyFee)}</h2>
-          <p className="muted">Moyenne des mensualites configurees</p>
+        <article className="panel student-directory-kpi">
+          <span className="student-kpi-icon student-kpi-icon-green" aria-hidden="true">02</span>
+          <div><p>{t("students.activeStudents")}</p><strong>{directoryStats.active}</strong></div>
+        </article>
+        <article className="panel student-directory-kpi">
+          <span className="student-kpi-icon student-kpi-icon-slate" aria-hidden="true">03</span>
+          <div><p>{t("students.inactiveStudents")}</p><strong>{directoryStats.inactive}</strong></div>
+        </article>
+        <article className="panel student-directory-kpi">
+          <span className="student-kpi-icon student-kpi-icon-teal" aria-hidden="true">04</span>
+          <div><p>{t("students.averageFee")}</p><strong>{formatMoney(directoryStats.averageFee, language)}</strong></div>
         </article>
       </section>
 
-      {editingId && <section className="panel">
-        <h3>{editingId ? "Modifier un eleve" : "Creer un eleve"}</h3>
-        <form className="form-grid" onSubmit={handleSubmit}>
-          <input
-            placeholder="Prenom"
-            value={form.first_name}
-            onChange={(e) => setForm({ ...form, first_name: e.target.value })}
-            required
-          />
-          <input
-            placeholder="Nom"
-            value={form.last_name}
-            onChange={(e) => setForm({ ...form, last_name: e.target.value })}
-            required
-          />
-          <input
-            type="date"
-            value={form.date_of_birth}
-            onChange={(e) => setForm({ ...form, date_of_birth: e.target.value })}
-          />
-          <select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}>
-            <option value="">Sexe</option>
-            <option value="F">Fille</option>
-            <option value="M">Garcon</option>
-          </select>
-          <input
-            placeholder="Classe"
-            value={form.class_name}
-            onChange={(e) => setForm({ ...form, class_name: e.target.value })}
-          />
-          <input
-            placeholder="Nom du parent"
-            value={form.parent_name}
-            onChange={(e) => setForm({ ...form, parent_name: e.target.value })}
-            required
-          />
-          <input
-            placeholder="Telephone du parent"
-            value={form.parent_phone}
-            onChange={(e) => setForm({ ...form, parent_phone: e.target.value })}
-            required
-          />
-          <input
-            placeholder="Adresse"
-            value={form.address}
-            onChange={(e) => setForm({ ...form, address: e.target.value })}
-          />
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder="Montant mensuel"
-            value={form.monthly_amount}
-            onChange={(e) => setForm({ ...form, monthly_amount: e.target.value })}
-            required
-          />
-          <input
-            type="number"
-            min="0"
-            max="100"
-            step="0.01"
-            placeholder="Reduction (%)"
-            value={form.discount_percent}
-            onChange={(e) => setForm({ ...form, discount_percent: e.target.value })}
-          />
-          <input
-            placeholder="Annee scolaire (ex: 2025-2026)"
-            value={form.school_year}
-            onChange={(e) => setForm({ ...form, school_year: e.target.value })}
-          />
-          <select
-            value={form.class_level_id}
-            onChange={(e) => setForm({ ...form, class_level_id: e.target.value })}
-            required
-          >
-            <option value="">Choisir un niveau scolaire</option>
-            {levelOptions.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-          <p className="muted">Les niveaux de la base sont charges automatiquement; sinon une liste par defaut est utilisee.</p>
-          <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-            <option value="ACTIVE">Actif</option>
-            <option value="INACTIVE">Inactif</option>
-          </select>
-          <p className="muted">Mensualite apres reduction: {formatMoney(effectiveAmountPreview)}</p>
-          <button type="submit" disabled={loading}>
-            {loading ? (editingId ? "Mise a jour..." : "Creation...") : (editingId ? "Mettre a jour" : "Creer l'eleve")}
-          </button>
-          {editingId && (
-            <button
-              type="button"
-              onClick={() => {
-                setEditingId(null);
-                setForm(emptyForm);
-                setError("");
-                setMessage("");
-              }}
-            >
-              Annuler modification
+      <section className="panel student-directory-panel">
+        <div className="student-section-heading">
+          <div>
+            <h3>{t("students.list")}</h3>
+            <p className="muted">{t("students.listDescription")}</p>
+          </div>
+          <span className="student-results-count">
+            {t("students.resultsCount", { count: students.length })}
+          </span>
+        </div>
+
+        <form className="student-list-filters" onSubmit={applyStudentFilters}>
+          <div className="student-filter-fields">
+            <label>
+              <span>{t("common.lastName")}</span>
+              <input
+                placeholder={t("students.filterLastName")}
+                value={filters.last_name}
+                onChange={(event) => setFilters({ ...filters, last_name: event.target.value })}
+              />
+            </label>
+            <label>
+              <span>{t("common.firstName")}</span>
+              <input
+                placeholder={t("students.filterFirstName")}
+                value={filters.first_name}
+                onChange={(event) => setFilters({ ...filters, first_name: event.target.value })}
+              />
+            </label>
+            <label>
+              <span>{t("common.level")}</span>
+              <select
+                value={filters.class_level}
+                onChange={(event) => setFilters({ ...filters, class_level: event.target.value })}
+              >
+                <option value="">{t("students.allLevels")}</option>
+                {levelOptions.map((item) => (
+                  <option key={item.id} value={item.name}>{item.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>{t("common.class")}</span>
+              <input
+                placeholder={t("students.filterClass")}
+                value={filters.class_name}
+                onChange={(event) => setFilters({ ...filters, class_name: event.target.value })}
+              />
+            </label>
+          </div>
+          <div className="student-filter-actions">
+            <button type="button" className="secondary-btn" onClick={resetFilters}>
+              {t("common.reset")}
             </button>
-          )}
+            <button type="submit" disabled={loading}>
+              {loading ? t("common.searching") : t("common.search")}
+            </button>
+          </div>
         </form>
-        {message && <p className="muted">{message}</p>}
-        {error && <p className="error-text">{error}</p>}
-      </section>}
 
-      <section className="panel">
-        <h3>Liste des eleves</h3>
-        <form className="filters-grid" onSubmit={applyStudentFilters}>
-          <input
-            placeholder="Filtrer par nom"
-            value={filters.last_name}
-            onChange={(e) => setFilters({ ...filters, last_name: e.target.value })}
-          />
-          <input
-            placeholder="Filtrer par prenom"
-            value={filters.first_name}
-            onChange={(e) => setFilters({ ...filters, first_name: e.target.value })}
-          />
-          <select
-            value={filters.class_level}
-            onChange={(e) => setFilters({ ...filters, class_level: e.target.value })}
-          >
-            <option value="">Tous les niveaux</option>
-            {levelOptions.map((item) => (
-              <option key={item.id} value={item.name}>{item.name}</option>
-            ))}
-          </select>
-          <input
-            placeholder="Filtrer par classe"
-            value={filters.class_name}
-            onChange={(e) => setFilters({ ...filters, class_name: e.target.value })}
-          />
-          <button
-            type="button"
-            className="secondary-btn"
-            onClick={resetFilters}
-          >
-            Réinitialiser les filtres
-          </button>
-          <button type="submit" disabled={loading}>
-            {loading ? "Recherche..." : "Rechercher"}
-          </button>
-        </form>
-        <div className="table-wrap">
-          {selectedStudents.length > 0 && <div className="selection-bar"><strong>{selectedStudents.length} élève(s) sélectionné(s)</strong><span>Mensualités : {formatMoney(selectedFinancials.monthly)}</span><span>Payé : {formatMoney(selectedFinancials.paid)}</span><span>Reste : {formatMoney(selectedFinancials.remaining)}</span><button type="button" className="secondary-btn" onClick={() => setSelectedIds([])}>Désélectionner</button></div>}
-          <table>
+        {message && <p className="success-text student-feedback">{message}</p>}
+        {error && <p className="error-text student-feedback">{error}</p>}
+
+        <div className="table-wrap student-table-wrap">
+          <table className="student-list-table">
             <thead>
               <tr>
-                <th><input type="checkbox" aria-label="Sélectionner tous les résultats" checked={filteredStudents.length > 0 && selectedIds.length === filteredStudents.length} onChange={(e) => setSelectedIds(e.target.checked ? filteredStudents.map((s) => s.id) : [])} /></th>
-                <th>Nom</th>
-                <th>Prenom</th>
-                <th>Niveau</th>
-                <th>Classe</th>
-                <th>Annee scolaire</th>
-                <th>Parent</th>
-                <th>Telephone parent</th>
-                <th>Mensualite</th>
-                <th>Reduction</th>
-                <th>Statut</th>
-                <th>Actions</th>
+                <th>{t("common.student")}</th>
+                <th>{t("students.schooling")}</th>
+                <th>{t("common.parent")}</th>
+                <th>{t("students.monthlyFee")}</th>
+                <th>{t("common.status")}</th>
+                <th>{t("common.actions")}</th>
               </tr>
             </thead>
             <tbody>
-              {filteredStudents.map((student) => (
-                <tr key={student.id}>
-                  <td><input type="checkbox" aria-label={`Sélectionner ${student.first_name} ${student.last_name}`} checked={selectedIds.includes(student.id)} onChange={(e) => setSelectedIds((ids) => e.target.checked ? [...new Set([...ids, student.id])] : ids.filter((id) => id !== student.id))} /></td>
-                  <td>{student.last_name}</td>
-                  <td>{student.first_name}</td>
-                  <td>{student.class_level_name || student.class_level}</td>
-                  <td>{student.class_name || "-"}</td>
-                  <td>{student.school_year || "-"}</td>
-                  <td>{student.parent_name}</td>
-                  <td>{student.parent_phone || student.phone || "-"}</td>
-                  <td>{formatMoney(student.monthly_amount)}</td>
-                  <td>{Number(student.discount_percent || 0)}%</td>
-                  <td>{student.status === "INACTIVE" ? "Inactif" : "Actif"}</td>
-                  <td>
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      <Link to={`/students/${student.id}`}>Voir la fiche</Link>
-                      <button type="button" style={{ width: "auto", padding: "6px 10px" }} onClick={() => handleEdit(student)}>Modifier</button>
-                      <button
-                        type="button"
-                        style={{ width: "auto", padding: "6px 10px" }}
-                        onClick={() => handleDelete(student)}
-                      >
-                        Supprimer
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filteredStudents.length === 0 && (
-                <tr>
-                  <td colSpan="12" className="table-empty">
-                    {searchApplied ? "Aucun eleve trouve." : "Lancez une recherche ou appliquez un filtre."}
-                  </td>
-                </tr>
+              {students.map((student) => {
+                const fullName = `${student.first_name || ""} ${student.last_name || ""}`.trim();
+                const classSummary = [student.class_name || student.class_group_name, student.school_year]
+                  .filter(Boolean)
+                  .join(" · ");
+                const parentPhone = student.parent_phone || student.phone || "-";
+
+                return (
+                  <tr key={student.id}>
+                    <td data-label={t("common.student")}>
+                      <div className="student-identity-cell">
+                        <span className="student-initials" aria-hidden="true">
+                          {(student.first_name?.[0] || "") + (student.last_name?.[0] || "")}
+                        </span>
+                        <div className="student-cell-stack">
+                          <Link className="student-name-link" to={`/students/${student.id}`}>{fullName}</Link>
+                          <span>#{student.id}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td data-label={t("students.schooling")}>
+                      <div className="student-cell-stack">
+                        <strong>{student.class_level_name || student.class_level || "-"}</strong>
+                        <span>{classSummary || "-"}</span>
+                      </div>
+                    </td>
+                    <td data-label={t("common.parent")}>
+                      <div className="student-cell-stack">
+                        <strong>{student.parent_name || "-"}</strong>
+                        <span dir="ltr">{parentPhone}</span>
+                      </div>
+                    </td>
+                    <td data-label={t("students.monthlyFee")}>
+                      <div className="student-cell-stack">
+                        <strong>{formatMoney(student.monthly_amount, language)}</strong>
+                        <span>{t("students.discountValue", { value: Number(student.discount_percent || 0) })}</span>
+                      </div>
+                    </td>
+                    <td data-label={t("common.status")}>
+                      <span className={`student-status-badge ${student.status === "INACTIVE" ? "is-inactive" : "is-active"}`}>
+                        {student.status === "INACTIVE" ? t("statuses.inactive") : t("statuses.active")}
+                      </span>
+                    </td>
+                    <td data-label={t("common.actions")}>
+                      <div className="student-row-actions">
+                        <Link className="secondary-btn button-link" to={`/students/${student.id}`}>
+                          {t("common.details")}
+                        </Link>
+                        {canManageStudents && (
+                          <>
+                            <Link className="student-action-link" to={`/students/${student.id}/edit`}>
+                              {t("common.edit")}
+                            </Link>
+                            <button
+                              type="button"
+                              className="student-action-danger"
+                              disabled={deletingId === student.id}
+                              onClick={() => handleDelete(student)}
+                            >
+                              {deletingId === student.id ? t("common.loading") : t("common.delete")}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {!loading && students.length === 0 && (
+                <tr><td colSpan="6" className="table-empty">{t("students.emptyDirectory")}</td></tr>
+              )}
+              {loading && students.length === 0 && (
+                <tr><td colSpan="6" className="table-empty">{t("common.loading")}</td></tr>
               )}
             </tbody>
           </table>

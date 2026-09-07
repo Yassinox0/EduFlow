@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { getClassLevels } from "../services/classLevelService";
-import { createSchedule, deleteSchedule, getSchedules, updateSchedule } from "../services/scheduleService";
+import {
+  createSchedule,
+  deleteSchedule,
+  getSchedules,
+  getScheduleWorkloads,
+  moveSchedule,
+  updateSchedule,
+} from "../services/scheduleService";
 import { getCurrentSchool, getSchoolById } from "../services/schoolService";
 import { getSubjects } from "../services/subjectService";
 import { createTeacher, deleteTeacher, getTeachers, updateTeacher } from "../services/teacherService";
 import useAuth from "../hooks/useAuth";
+import useI18n from "../hooks/useI18n";
 import { buildSchedulePdf, downloadBlob } from "../utils/schedulePdfExport";
 
 const API_URL = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8080").replace(/\/+$/, "");
@@ -23,12 +32,12 @@ const resolveLogoUrl = (logoPath) => {
 };
 
 const dayOptions = [
-  { value: "MONDAY", label: "Lundi" },
-  { value: "TUESDAY", label: "Mardi" },
-  { value: "WEDNESDAY", label: "Mercredi" },
-  { value: "THURSDAY", label: "Jeudi" },
-  { value: "FRIDAY", label: "Vendredi" },
-  { value: "SATURDAY", label: "Samedi" },
+  { value: "MONDAY" },
+  { value: "TUESDAY" },
+  { value: "WEDNESDAY" },
+  { value: "THURSDAY" },
+  { value: "FRIDAY" },
+  { value: "SATURDAY" },
 ];
 
 const baseTimeSlots = [
@@ -43,20 +52,7 @@ const baseTimeSlots = [
   { start: "17:30", end: "18:30", label: "17:30 - 18:30" },
 ];
 
-const monthLabels = [
-  "janvier",
-  "février",
-  "mars",
-  "avril",
-  "mai",
-  "juin",
-  "juillet",
-  "août",
-  "septembre",
-  "octobre",
-  "novembre",
-  "décembre",
-];
+const monthKeys = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
 
 const getAcademicYear = (date = new Date()) => (date.getMonth() >= 7 ? date.getFullYear() : date.getFullYear() - 1);
 
@@ -92,18 +88,21 @@ const academicWeekStart = (academicYear, weekNumber) => {
   return weekStart;
 };
 
-const formatDayMonth = (date) => `${String(date.getDate()).padStart(2, "0")} ${monthLabels[date.getMonth()]}`;
+const formatDayMonth = (date, t) => `${String(date.getDate()).padStart(2, "0")} ${t(`months.${monthKeys[date.getMonth()]}`)}`;
 
-const academicWeekLabel = (academicYear, weekNumber) => {
+const academicWeekLabel = (academicYear, weekNumber, t) => {
   const start = academicWeekStart(academicYear, weekNumber);
   const end = new Date(start);
   end.setDate(start.getDate() + 5);
 
   if (start.getMonth() === end.getMonth()) {
-    return `du ${String(start.getDate()).padStart(2, "0")} au ${formatDayMonth(end)}`;
+    return t("schedules.weekRangeSameMonth", {
+      start: String(start.getDate()).padStart(2, "0"),
+      end: formatDayMonth(end, t),
+    });
   }
 
-  return `du ${formatDayMonth(start)} au ${formatDayMonth(end)}`;
+  return t("schedules.weekRangeDifferentMonths", { start: formatDayMonth(start, t), end: formatDayMonth(end, t) });
 };
 
 const emptyForm = {
@@ -111,6 +110,7 @@ const emptyForm = {
   subject_id: "",
   teacher_id: "",
   teacher_name: "",
+  room: "",
   notes: "",
   weekly_hours: "",
   year_value: String(currentYear),
@@ -150,6 +150,11 @@ const addOneHour = (time) => {
   return `${String(nextHour).padStart(2, "0")}:${String(Number(minute)).padStart(2, "0")}`;
 };
 
+const addMinutes = (time, minutes) => {
+  const total = Math.min(23 * 60 + 59, Math.max(0, timeToMinutes(time) + Number(minutes || 0)));
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+};
+
 const normalizeSlot = (slot) => {
   if (typeof slot === "string") {
     return { start: slot, end: addOneHour(slot), label: `${slot} - ${addOneHour(slot)}` };
@@ -178,15 +183,16 @@ const teacherName = (teacher) => teacher?.name || `${teacher?.first_name || ""} 
 
 const scheduleSubjectCode = (schedule) =>
   Number(schedule.is_external) === 1 || schedule.is_external === true
-    ? "AILLEURS"
+    ? "EXTERNAL"
     : schedule.subject_code || schedule.subject_abbreviation || schedule.subject || "-";
 
 const isExternalBusy = (schedule) =>
   schedule?.schedule_type === "external_busy" || Number(schedule?.is_external) === 1 || schedule?.is_external === true;
 
-const busyLabelForTeacher = (teacher) => (String(teacher?.gender || "").toUpperCase() === "FEMALE" ? "Occupée" : "Occupé");
+const busyLabelForTeacher = (teacher, t) =>
+  String(teacher?.gender || "").toUpperCase() === "FEMALE" ? t("schedules.busyFemale") : t("schedules.busyMale");
 
-const subjectLabel = (subject) => subject?.code || subject?.abbreviation || subject?.name || "Matière";
+const subjectLabel = (subject) => subject?.code || subject?.abbreviation || subject?.name || "-";
 
 const scheduleSessionLabel = (schedule) => {
   if (isExternalBusy(schedule)) {
@@ -213,12 +219,12 @@ const teacherSubjectCodes = (teacher, scheduleList = []) => {
 
 const classDisplayName = (item) => {
   if (!item) {
-    return "Classe";
+    return "-";
   }
 
   const level = item.level_name || "";
   const group = item.group_name || item.name || "";
-  return level && group ? `${level} - ${group}` : level || group || "Classe";
+  return level && group ? `${level} - ${group}` : level || group || "-";
 };
 
 const teacherClassLevelIds = (teacher) =>
@@ -253,7 +259,7 @@ const teacherTeachesSubject = (teacher, subjectId) =>
 
 const abbreviateClassName = (item) => {
   if (!item) {
-    return "Classe";
+    return "-";
   }
 
   const directCode = String(item.class_code || item.code || "").trim();
@@ -286,16 +292,16 @@ const abbreviateClassName = (item) => {
     return `${levelNumber}BAC${groupLabel}`;
   }
 
-  return normalized && !/^\d+$/.test(normalized) ? normalized : rawName || "Classe";
+  return normalized && !/^\d+$/.test(normalized) ? normalized : rawName || "-";
 };
 
 const compactClassName = (item) => {
   if (!item) {
-    return "Classe";
+    return "-";
   }
 
   const abbreviated = abbreviateClassName(item);
-  if (abbreviated !== "Classe") {
+  if (abbreviated !== "-") {
     return abbreviated;
   }
 
@@ -308,7 +314,7 @@ const compactClassName = (item) => {
     return `${compactLevel}-${group.replace(/\s+/g, "")}`;
   }
 
-  return compactLevel || level || group || "Classe";
+  return compactLevel || level || group || "-";
 };
 
 const courseTone = (schedule) => {
@@ -364,15 +370,29 @@ const scheduleMatchesTeacher = (schedule, teacher) => {
 const scheduleOverlapsSlot = (schedule, day, startTime, endTime) =>
   schedule.day_of_week === day && timeRangesOverlap(schedule.start_time, schedule.end_time, startTime, endTime);
 
-const scheduleCountLabel = (count) => `${count} ${count > 1 ? "créneaux" : "créneau"} cette semaine`;
+const scheduleErrorMessage = (error, t, fallbackKey) => {
+  const code = error?.response?.data?.code;
+  const translations = {
+    CLASS_SLOT_CONFLICT: "schedules.classSlotConflict",
+    TEACHER_SLOT_CONFLICT: "schedules.teacherSlotConflict",
+    SUBJECT_WEEKLY_HOURS_EXCEEDED: "schedules.subjectHoursExceeded",
+    TEACHER_WEEKLY_HOURS_EXCEEDED: "schedules.teacherHoursExceeded",
+    INVALID_COURSE_DURATION: "schedules.invalidCourseDuration",
+  };
+  return translations[code] ? t(translations[code]) : error?.response?.data?.message || t(fallbackKey);
+};
 
 export default function SchedulesPage() {
+  const [searchParams] = useSearchParams();
+  const requestedTeacherId = searchParams.get("teacher_id") || "";
   const { user } = useAuth();
+  const { language, t } = useI18n();
   const canDeleteTeachers = ["super_admin", "admin"].includes(user?.role);
+  const canManageSchedules = user?.role === "admin";
   const scheduleBoardRef = useRef(null);
-  const [mode, setMode] = useState("teacher");
+  const [mode, setMode] = useState(() => (user?.role === "admin" ? "class" : "teacher"));
   const [selectedClassId, setSelectedClassId] = useState("");
-  const [selectedTeacherId, setSelectedTeacherId] = useState("");
+  const [selectedTeacherId, setSelectedTeacherId] = useState(requestedTeacherId);
   const [selectedYear, setSelectedYear] = useState(String(currentYear));
   const [selectedWeek, setSelectedWeek] = useState(String(currentWeek));
   const [teacherForm, setTeacherForm] = useState(emptyTeacherForm);
@@ -387,6 +407,10 @@ export default function SchedulesPage() {
   const [school, setSchool] = useState({ id: null, name: null, logo_path: null });
   const [schedules, setSchedules] = useState([]);
   const [weeklyTeacherSchedules, setWeeklyTeacherSchedules] = useState([]);
+  const [workloads, setWorkloads] = useState([]);
+  const [selectedPaletteTeacherId, setSelectedPaletteTeacherId] = useState("");
+  const [dragOverCell, setDragOverCell] = useState("");
+  const [movingSchedule, setMovingSchedule] = useState(false);
 
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
@@ -408,11 +432,21 @@ export default function SchedulesPage() {
     [teachers, selectedTeacherId]
   );
 
+  const selectedPaletteTeacher = useMemo(
+    () => teachers.find((item) => String(item.id) === String(selectedPaletteTeacherId)),
+    [teachers, selectedPaletteTeacherId]
+  );
+
+  const workloadByTeacher = useMemo(
+    () => new Map(workloads.map((item) => [String(item.teacher_id), item])),
+    [workloads]
+  );
+
   const timeSlots = useMemo(() => {
     return buildTimeSlots(schedules);
   }, [schedules]);
 
-  const targetLabel = mode === "class" ? compactClassName(selectedClass) : teacherName(selectedTeacher) || "Professeur";
+  const targetLabel = mode === "class" ? compactClassName(selectedClass) : teacherName(selectedTeacher) || t("roles.professeur");
   const filteredTeachers = useMemo(() => {
     const search = teacherSearch.trim().toLowerCase();
     return teachers.filter((teacher) => {
@@ -445,14 +479,23 @@ export default function SchedulesPage() {
     const ids = teacherClassLevelIds(selectedTeacher);
     return ids.length ? classes.filter((item) => ids.includes(String(item.id))) : [];
   }, [classes, mode, selectedTeacher]);
+  const courseClassOptions = useMemo(() => {
+    const formTeacher = teachers.find((teacher) => String(teacher.id) === String(form.teacher_id));
+    const targetTeacher = mode === "teacher" ? selectedTeacher : formTeacher;
+    if (!targetTeacher) return classes;
+    const ids = teacherClassLevelIds(targetTeacher);
+    return ids.length ? classes.filter((item) => ids.includes(String(item.id))) : [];
+  }, [classes, form.teacher_id, mode, selectedTeacher, teachers]);
   const filteredSubjects = useMemo(() => {
-    if (mode !== "teacher" || !selectedTeacher) {
+    const formTeacher = teachers.find((teacher) => String(teacher.id) === String(form.teacher_id));
+    const targetTeacher = mode === "teacher" ? selectedTeacher : formTeacher;
+    if (!targetTeacher) {
       return subjects;
     }
 
-    const ids = teacherSubjectIds(selectedTeacher);
+    const ids = teacherSubjectIds(targetTeacher);
     return ids.length ? subjects.filter((subject) => ids.includes(String(subject.id))) : [];
-  }, [mode, selectedTeacher, subjects]);
+  }, [form.teacher_id, mode, selectedTeacher, subjects, teachers]);
   const courseTeacherOptions = useMemo(() => {
     if (mode === "class") {
       return activeTeachers.filter((teacher) => {
@@ -515,8 +558,9 @@ export default function SchedulesPage() {
       }
       setSelectedClassId((prev) => prev || String(safeClasses[0]?.id || ""));
       setSelectedTeacherId((prev) => prev || String(safeTeachers[0]?.id || ""));
+      setSelectedPaletteTeacherId((prev) => prev || String(safeTeachers[0]?.id || ""));
     } catch (err) {
-      setError(err?.response?.data?.message || "Impossible de charger les classes et les professeurs.");
+      setError(t("schedules.referenceLoadError"));
     } finally {
       setLoading(false);
     }
@@ -554,7 +598,7 @@ export default function SchedulesPage() {
       setSchedules(Array.isArray(data) ? data : []);
     } catch (err) {
       setSchedules([]);
-      setError(err?.response?.data?.message || "Impossible de charger les emplois du temps.");
+      setError(t("schedules.schedulesLoadError"));
     }
   };
 
@@ -571,7 +615,22 @@ export default function SchedulesPage() {
     }
   };
 
-  const loadSubjectsForClass = async (classLevelId, selectedSubjectId = "") => {
+  const loadWorkloads = async () => {
+    if (!canManageSchedules || !selectedYear || !selectedWeek) {
+      setWorkloads([]);
+      return;
+    }
+
+    try {
+      const data = await getScheduleWorkloads({ year_value: selectedYear, week_number: selectedWeek });
+      setWorkloads(Array.isArray(data) ? data : []);
+    } catch {
+      setWorkloads([]);
+      setError(t("schedules.workloadLoadError"));
+    }
+  };
+
+  const loadSubjectsForClass = async (classLevelId, selectedSubjectId = "", teacherOverride = null) => {
     setSubjects([]);
     if (!classLevelId) {
       return;
@@ -582,8 +641,8 @@ export default function SchedulesPage() {
       const data = await getSubjects({ class_level_id: classLevelId });
       const safeSubjects = Array.isArray(data) ? data : [];
       setSubjects(safeSubjects);
-      const allowedSubjectIds =
-        mode === "teacher" && selectedTeacher ? teacherSubjectIds(selectedTeacher) : [];
+      const targetTeacher = teacherOverride || (mode === "teacher" ? selectedTeacher : null);
+      const allowedSubjectIds = targetTeacher ? teacherSubjectIds(targetTeacher) : [];
       const availableSubjects = allowedSubjectIds.length
         ? safeSubjects.filter((subject) => allowedSubjectIds.includes(String(subject.id)))
         : safeSubjects;
@@ -599,7 +658,7 @@ export default function SchedulesPage() {
         weekly_hours: subjectWeeklyHours(nextSubject),
       }));
     } catch (err) {
-      setError(err?.response?.data?.message || "Impossible de charger les matières de cette classe.");
+      setError(t("schedules.subjectsLoadError"));
     } finally {
       setSubjectsLoading(false);
     }
@@ -607,7 +666,7 @@ export default function SchedulesPage() {
 
   useEffect(() => {
     loadReferenceData();
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     loadGridSchedules();
@@ -616,6 +675,10 @@ export default function SchedulesPage() {
   useEffect(() => {
     loadWeeklyTeacherOverview();
   }, [selectedYear, selectedWeek]);
+
+  useEffect(() => {
+    loadWorkloads();
+  }, [selectedYear, selectedWeek, canManageSchedules]);
 
   const closeModal = () => {
     setModalOpen(false);
@@ -670,13 +733,15 @@ export default function SchedulesPage() {
     setPdfPreview({ open: false, url: "", filename: "", blob: null });
   };
 
-  const openCreateModal = (day, slot) => {
+  const openCreateModal = (day, slot, teacherOverride = null) => {
     const selectedSlot = normalizeSlot(slot);
+    const targetTeacher = teacherOverride || (mode === "teacher" ? selectedTeacher : selectedPaletteTeacher);
     const nextForm = {
       ...emptyForm,
       class_level_id: mode === "class" ? String(selectedClassId) : "",
-      teacher_id: mode === "teacher" ? String(selectedTeacherId) : "",
-      teacher_name: mode === "teacher" ? teacherName(selectedTeacher) : "",
+      teacher_id: targetTeacher ? String(targetTeacher.id) : "",
+      teacher_name: teacherName(targetTeacher),
+      room: "",
       year_value: selectedYear,
       week_number: selectedWeek,
       day_of_week: day,
@@ -690,14 +755,14 @@ export default function SchedulesPage() {
     setEditingId(null);
     setForm(nextForm);
     setModalOpen(true);
-    if (mode === "teacher" && !nextForm.class_level_id && selectedTeacher) {
-      const firstAllowedClassId = teacherClassLevelIds(selectedTeacher)[0] || "";
+    if (mode === "teacher" && !nextForm.class_level_id && targetTeacher) {
+      const firstAllowedClassId = teacherClassLevelIds(targetTeacher)[0] || "";
       if (firstAllowedClassId) {
         setForm((prev) => ({ ...prev, class_level_id: String(firstAllowedClassId) }));
-        loadSubjectsForClass(firstAllowedClassId);
+        loadSubjectsForClass(firstAllowedClassId, "", targetTeacher);
       }
     } else if (nextForm.class_level_id) {
-      loadSubjectsForClass(nextForm.class_level_id);
+      loadSubjectsForClass(nextForm.class_level_id, "", targetTeacher);
     }
   };
 
@@ -711,6 +776,7 @@ export default function SchedulesPage() {
       subject_id: String(schedule.subject_id || ""),
       teacher_id: String(scheduleTeacherId),
       teacher_name: schedule.teacher_name || "",
+      room: schedule.room || "",
       notes: schedule.notes || "",
       weekly_hours: schedule.subject_weekly_hours ? String(schedule.subject_weekly_hours) : "",
       year_value: String(schedule.year_value || selectedYear),
@@ -727,7 +793,8 @@ export default function SchedulesPage() {
     setForm(nextForm);
     setModalOpen(true);
     if (!nextForm.is_external && nextForm.class_level_id) {
-      loadSubjectsForClass(nextForm.class_level_id, nextForm.subject_id);
+      const scheduleTeacher = teachers.find((teacher) => String(teacher.id) === String(scheduleTeacherId));
+      loadSubjectsForClass(nextForm.class_level_id, nextForm.subject_id, scheduleTeacher);
     }
   };
 
@@ -737,7 +804,7 @@ export default function SchedulesPage() {
     setError("");
 
     if (!teacherForm.gender) {
-      setError("Sélectionnez le sexe du professeur.");
+      setError(t("schedules.genderRequired"));
       return;
     }
 
@@ -755,7 +822,7 @@ export default function SchedulesPage() {
       setSelectedTeacherId(String(saved.id || selectedTeacherId));
       closeTeacherModal();
       setMode("teacher");
-      setMessage(editingTeacherId ? "Professeur modifié avec succès." : "Professeur ajouté avec succès.");
+      setMessage(editingTeacherId ? t("schedules.teacherUpdated") : t("schedules.teacherCreated"));
     } catch (err) {
       if (import.meta.env.DEV) {
         console.error("Erreur création/modification professeur", {
@@ -764,12 +831,12 @@ export default function SchedulesPage() {
           payload: teacherForm,
         });
       }
-      setError(err?.response?.data?.message || "Impossible de créer ou modifier ce professeur.");
+      setError(t("schedules.teacherSaveError"));
     }
   };
 
   const removeTeacher = async (teacher) => {
-    if (!teacher?.id || !window.confirm("Supprimer ce professeur ?")) {
+    if (!teacher?.id || !window.confirm(t("schedules.teacherDeleteConfirm"))) {
       return;
     }
 
@@ -783,9 +850,9 @@ export default function SchedulesPage() {
       if (String(selectedTeacherId) === String(teacher.id)) {
         setSelectedTeacherId(String(safeTeachers[0]?.id || ""));
       }
-      setMessage("Professeur supprimé avec succès.");
+      setMessage(t("schedules.teacherDeleted"));
     } catch (err) {
-      setError(err?.response?.data?.message || "Suppression non autorisée pour ce professeur.");
+      setError(t("schedules.teacherDeleteError"));
     }
   };
 
@@ -813,13 +880,12 @@ export default function SchedulesPage() {
 
     if (isExternalBusy(conflict)) {
       const isFemale = String(teacher?.gender || conflict.teacher_gender || "").toUpperCase() === "FEMALE";
-      const prefix = isFemale ? "Mme" : "M.";
-      const pronoun = isFemale ? "Elle" : "Il";
-      const busy = isFemale ? "occupée" : "occupé";
-      return `${prefix} ${teacherName(teacher)} n'est pas disponible sur ce créneau. ${pronoun} est ${busy} dans un autre établissement.`;
+      return t(isFemale ? "schedules.externalConflictFemale" : "schedules.externalConflictMale", {
+        name: teacherName(teacher),
+      });
     }
 
-    return "Ce professeur possède déjà un cours sur ce créneau.";
+    return t("schedules.internalConflict");
   };
 
   const submitSchedule = async (e) => {
@@ -832,7 +898,7 @@ export default function SchedulesPage() {
     const effectiveTeacher = teachers.find((teacher) => String(teacher.id) === String(effectiveTeacherId));
 
     if (!effectiveTeacher) {
-      setError("Sélectionnez un professeur.");
+      setError(t("schedules.teacherRequired"));
       return;
     }
 
@@ -854,6 +920,7 @@ export default function SchedulesPage() {
       weekly_hours: isExternal ? undefined : Number(form.weekly_hours),
       teacher_id: Number(effectiveTeacher.id),
       teacher_name: teacherName(effectiveTeacher),
+      room: form.room.trim(),
       school_id: isExternal ? effectiveTeacher.school_id || school?.id || undefined : undefined,
       year_value: Number(form.year_value),
       week_number: Number(form.week_number),
@@ -868,10 +935,10 @@ export default function SchedulesPage() {
     try {
       if (editingId) {
         await updateSchedule(editingId, payload);
-        setMessage("Créneau modifié avec succès.");
+        setMessage(t("schedules.slotUpdated"));
       } else {
         await createSchedule(payload);
-        setMessage("Créneau créé avec succès.");
+        setMessage(t("schedules.slotCreated"));
       }
 
       closeModal();
@@ -880,14 +947,14 @@ export default function SchedulesPage() {
       if (!selectedTeacherId && payload.teacher_id) {
         setSelectedTeacherId(String(payload.teacher_id));
       }
-      await Promise.all([loadGridSchedules(), loadWeeklyTeacherOverview()]);
+      await Promise.all([loadGridSchedules(), loadWeeklyTeacherOverview(), loadWorkloads()]);
     } catch (err) {
-      setError(err?.response?.data?.message || "Échec de sauvegarde du créneau.");
+      setError(scheduleErrorMessage(err, t, "schedules.slotSaveError"));
     }
   };
 
   const removeSchedule = async () => {
-    if (!editingId || !window.confirm("Supprimer ce créneau de l'emploi du temps ?")) {
+    if (!editingId || !window.confirm(t("schedules.slotDeleteConfirm"))) {
       return;
     }
 
@@ -895,11 +962,80 @@ export default function SchedulesPage() {
     setError("");
     try {
       await deleteSchedule(editingId);
-      setMessage("Créneau supprimé avec succès.");
+      setMessage(t("schedules.slotDeleted"));
       closeModal();
-      await Promise.all([loadGridSchedules(), loadWeeklyTeacherOverview()]);
+      await Promise.all([loadGridSchedules(), loadWeeklyTeacherOverview(), loadWorkloads()]);
     } catch (err) {
-      setError(err?.response?.data?.message || "Échec de suppression du créneau.");
+      setError(err?.response?.data?.message || t("schedules.slotDeleteError"));
+    }
+  };
+
+  const beginTeacherDrag = (event, teacher) => {
+    if (!canManageSchedules) return;
+    const payload = JSON.stringify({ type: "teacher", teacherId: teacher.id });
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData("application/x-onecore-planning", payload);
+    event.dataTransfer.setData("text/plain", payload);
+    setSelectedPaletteTeacherId(String(teacher.id));
+  };
+
+  const beginScheduleDrag = (event, schedule) => {
+    if (!canManageSchedules) return;
+    event.stopPropagation();
+    const payload = JSON.stringify({ type: "schedule", scheduleId: schedule.id });
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-onecore-planning", payload);
+    event.dataTransfer.setData("text/plain", payload);
+  };
+
+  const readPlanningDrop = (event) => {
+    const raw = event.dataTransfer.getData("application/x-onecore-planning") || event.dataTransfer.getData("text/plain");
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  };
+
+  const handleCellDrop = async (event, day, slot) => {
+    event.preventDefault();
+    setDragOverCell("");
+    if (!canManageSchedules || slot.pause) return;
+
+    const dropped = readPlanningDrop(event);
+    if (dropped?.type === "teacher") {
+      const teacher = teachers.find((item) => String(item.id) === String(dropped.teacherId));
+      if (!teacher) return;
+      setSelectedPaletteTeacherId(String(teacher.id));
+      if (mode === "teacher") setSelectedTeacherId(String(teacher.id));
+      openCreateModal(day, slot, teacher);
+      return;
+    }
+
+    if (dropped?.type !== "schedule" || movingSchedule) return;
+    const schedule = uniqueSchedules(schedules, weeklyTeacherSchedules).find(
+      (item) => String(item.id) === String(dropped.scheduleId)
+    );
+    if (!schedule) return;
+
+    const duration = Math.max(30, timeToMinutes(schedule.end_time) - timeToMinutes(schedule.start_time));
+    setMovingSchedule(true);
+    setMessage("");
+    setError("");
+    try {
+      await moveSchedule(schedule.id, {
+        year_value: Number(selectedYear),
+        week_number: Number(selectedWeek),
+        day_of_week: day,
+        start_time: slot.start,
+        end_time: addMinutes(slot.start, duration),
+      });
+      setMessage(t("schedules.courseMoved"));
+      await Promise.all([loadGridSchedules(), loadWeeklyTeacherOverview(), loadWorkloads()]);
+    } catch (err) {
+      setError(scheduleErrorMessage(err, t, "schedules.slotSaveError"));
+    } finally {
+      setMovingSchedule(false);
     }
   };
 
@@ -909,6 +1045,7 @@ export default function SchedulesPage() {
     setError("");
     setMode("teacher");
     setSelectedTeacherId(nextTeacherId);
+    setSelectedPaletteTeacherId(nextTeacherId);
     setSchedules([]);
 
     try {
@@ -921,7 +1058,7 @@ export default function SchedulesPage() {
       });
     } catch (err) {
       setSchedules([]);
-      setError(err?.response?.data?.message || "Impossible de charger l'emploi du temps de ce professeur.");
+      setError(t("schedules.teacherScheduleLoadError"));
     }
   };
 
@@ -930,12 +1067,12 @@ export default function SchedulesPage() {
     const targetTeacherId = teacherOverride ? String(teacherOverride.id) : selectedTeacherId;
 
     if (isClassPdf && !selectedClassId) {
-      setError("Choisissez une classe avant de générer son emploi du temps.");
+      setError(t("schedules.classPdfRequired"));
       return null;
     }
 
     if (!isClassPdf && !targetTeacherId) {
-      setError("Choisissez un professeur avant de générer son emploi du temps.");
+      setError(t("schedules.teacherPdfRequired"));
       return null;
     }
 
@@ -967,7 +1104,7 @@ export default function SchedulesPage() {
       });
       weeklySchedules = uniqueSchedules(apiSchedules, visibleSchedules);
     } catch (err) {
-      setError(err?.response?.data?.message || "Impossible de charger les créneaux pour le PDF.");
+      setError(t("schedules.pdfSlotsLoadError"));
       return null;
     }
 
@@ -988,14 +1125,29 @@ export default function SchedulesPage() {
         logoUrl: exportSchool?.logo_data_url || resolveLogoUrl(exportSchool?.logo_path),
         className: compactClassName(selectedClass),
         teacherName: !isClassPdf ? teacherName(teacherOverride || selectedTeacher) : "",
-        weekLabel: academicWeekLabel(selectedYear, selectedWeek),
+        weekLabel: academicWeekLabel(selectedYear, selectedWeek, t),
         yearLabel: academicYearLabel(selectedYear),
         schedules: weeklySchedules,
-        days: dayOptions,
+        days: dayOptions.map((day) => ({ ...day, label: t(`schedules.days.${day.value}`) })),
         timeSlots: pdfSlots,
+        labels: {
+          isRtl: language === "ar",
+          school: t("common.school"),
+          time: t("schedules.time"),
+          break: t("schedules.break"),
+          elsewhere: t("schedules.elsewhere"),
+          otherSchool: t("schedules.otherSchool"),
+          classTitle: t("schedules.pdfClassTitle", { name: compactClassName(selectedClass) }),
+          teacherTitle: t("schedules.pdfTeacherTitle", { name: teacherName(teacherOverride || selectedTeacher) }),
+          period: t("schedules.pdfPeriod", {
+            week: academicWeekLabel(selectedYear, selectedWeek, t),
+            year: academicYearLabel(selectedYear),
+          }),
+          filename: t(isClassPdf ? "schedules.pdfClassFilename" : "schedules.pdfTeacherFilename"),
+        },
       });
     } catch (err) {
-      setError(err?.message || "Impossible de générer le PDF.");
+      setError(t("schedules.pdfError"));
       return null;
     }
   };
@@ -1033,32 +1185,38 @@ export default function SchedulesPage() {
   const teacherCourseCount = (teacher) =>
     weeklyTeacherSchedules.filter((schedule) => scheduleMatchesTeacher(schedule, teacher) && !isExternalBusy(schedule)).length;
 
+  const formatWorkloadHours = (value) =>
+    new Intl.NumberFormat(language === "ar" ? "ar-MA" : "fr-MA", { maximumFractionDigits: 2 }).format(Number(value || 0));
+
   return (
     <div className="admin-grid">
       <section className="panel schedule-board-panel" ref={scheduleBoardRef}>
         <div className="schedule-board-header">
           <div>
-            <p className="brand-kicker">Emploi du temps</p>
-            <h2>{mode === "class" ? "EDT par classe" : "EDT par professeur"}</h2>
+            <p className="brand-kicker">{t("schedules.title")}</p>
+            <h2>{mode === "class" ? t("schedules.byClass") : t("schedules.byTeacher")}</h2>
             <p className="muted">
-              {targetLabel} | {academicWeekLabel(selectedYear, selectedWeek)} | Année scolaire{" "}
-              {academicYearLabel(selectedYear)}
+              {t("schedules.summary", {
+                target: targetLabel,
+                week: academicWeekLabel(selectedYear, selectedWeek, t),
+                year: academicYearLabel(selectedYear),
+              })}
             </p>
           </div>
-          <div className="schedule-mode-tabs" role="tablist" aria-label="Mode d'affichage">
+          <div className="schedule-mode-tabs" role="tablist" aria-label={t("schedules.displayMode")}>
             <button
               type="button"
               className={mode === "class" ? "active" : ""}
               onClick={() => setMode("class")}
             >
-              Par classe
+              {t("schedules.classMode")}
             </button>
             <button
               type="button"
               className={mode === "teacher" ? "active" : ""}
               onClick={() => setMode("teacher")}
             >
-              Par professeur
+              {t("schedules.teacherMode")}
             </button>
           </div>
         </div>
@@ -1066,7 +1224,7 @@ export default function SchedulesPage() {
         <div className="schedule-toolbar">
           {mode === "class" ? (
             <label>
-              <span>Classe</span>
+              <span>{t("common.class")}</span>
               <select value={selectedClassId} onChange={(e) => setSelectedClassId(e.target.value)}>
                 {classes.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -1078,9 +1236,9 @@ export default function SchedulesPage() {
           ) : (
             <div className="schedule-teacher-picker">
               <label>
-                <span>Professeur</span>
+                <span>{t("roles.professeur")}</span>
                 <select value={selectedTeacherId} onChange={(e) => setSelectedTeacherId(e.target.value)}>
-                  <option value="">Sélectionner un professeur</option>
+                  <option value="">{t("schedules.selectTeacher")}</option>
                   {teachers.map((teacher) => (
                     <option key={teacher.id} value={teacher.id}>
                       {teacherName(teacher)}
@@ -1092,7 +1250,7 @@ export default function SchedulesPage() {
           )}
 
           <label>
-            <span>Année scolaire</span>
+            <span>{t("common.schoolYear")}</span>
             <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>
               {yearOptions.map((year) => (
                 <option key={year} value={year}>
@@ -1103,38 +1261,133 @@ export default function SchedulesPage() {
           </label>
 
           <label>
-            <span>Semaine</span>
+            <span>{t("schedules.week")}</span>
             <select value={selectedWeek} onChange={(e) => setSelectedWeek(e.target.value)}>
               {weekOptions.map((week) => (
                 <option key={week} value={week}>
-                  {academicWeekLabel(selectedYear, week)}
+                  {academicWeekLabel(selectedYear, week, t)}
                 </option>
               ))}
             </select>
           </label>
 
           <button type="button" className="secondary-btn schedule-pdf-btn" onClick={() => previewWeeklyPdf(mode)} disabled={pdfLoading}>
-            Voir PDF
+            {t("schedules.viewPdf")}
           </button>
           <button type="button" className="secondary-btn schedule-pdf-btn" onClick={() => downloadWeeklyPdf(mode)} disabled={pdfLoading}>
-            Télécharger PDF
+            {t("schedules.downloadPdf")}
           </button>
         </div>
 
-        {loading && <p className="muted">Chargement...</p>}
+        {loading && <p className="muted">{t("common.loading")}</p>}
         {message && <p className="success-text">{message}</p>}
         {error && <p className="error-text">{error}</p>}
         {!loading && mode === "teacher" && teachers.length === 0 && (
-          <p className="muted">Aucun professeur enregistré pour cette école.</p>
+          <p className="muted">{t("schedules.teachersEmpty")}</p>
+        )}
+
+        {canManageSchedules && (
+          <section className="schedule-planning-palette" aria-label={t("schedules.teacherPalette") }>
+            <div className="schedule-palette-heading">
+              <div>
+                <h3>{t("schedules.teacherPalette")}</h3>
+                <p className="muted">{t("schedules.dragTeacherHelp")}</p>
+              </div>
+              {selectedPaletteTeacher && (
+                <span className="schedule-selected-teacher">
+                  {t("schedules.selectedTeacher", { name: teacherName(selectedPaletteTeacher) })}
+                </span>
+              )}
+            </div>
+
+            <div className="schedule-palette-filters">
+              <label>
+                <span>{t("schedules.teacherSearch")}</span>
+                <input
+                  placeholder={t("schedules.teacherSearchPlaceholder")}
+                  value={teacherSearch}
+                  onChange={(event) => setTeacherSearch(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>{t("common.subject")}</span>
+                <select value={teacherSubjectFilter} onChange={(event) => setTeacherSubjectFilter(event.target.value)}>
+                  <option value="">{t("schedules.allSubjects")}</option>
+                  {allSubjects.map((subject) => (
+                    <option key={subject.id} value={subject.id}>{subjectLabel(subject)}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="schedule-palette-track" tabIndex="0">
+              {filteredTeachers
+                .filter((teacher) => String(teacher.status || "ACTIVE").toUpperCase() === "ACTIVE")
+                .map((teacher) => {
+                  const workload = workloadByTeacher.get(String(teacher.id)) || {};
+                  const assigned = Number(workload.assigned_hours || 0);
+                  const scheduled = Number(workload.scheduled_hours || 0);
+                  const remaining = Number(workload.remaining_hours || 0);
+                  const overload = Number(workload.overload_hours || 0);
+                  const progress = assigned > 0 ? Math.min(100, (scheduled / assigned) * 100) : scheduled > 0 ? 100 : 0;
+                  const selected = String(selectedPaletteTeacherId) === String(teacher.id);
+                  return (
+                    <article
+                      key={teacher.id}
+                      role="button"
+                      tabIndex="0"
+                      draggable
+                      aria-pressed={selected}
+                      className={`schedule-palette-teacher ${selected ? "selected" : ""} ${overload > 0 ? "overloaded" : ""}`}
+                      onClick={() => setSelectedPaletteTeacherId(String(teacher.id))}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") setSelectedPaletteTeacherId(String(teacher.id));
+                      }}
+                      onDragStart={(event) => beginTeacherDrag(event, teacher)}
+                    >
+                      <div className="schedule-palette-teacher-head">
+                        <div>
+                          <strong>{teacherName(teacher)}</strong>
+                          <span>{teacherSubjectLabels(teacher).join(", ") || "-"}</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="schedule-palette-view"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            viewTeacherSchedule(teacher);
+                          }}
+                        >
+                          {t("schedules.viewSchedule")}
+                        </button>
+                      </div>
+                      <div className="schedule-workload-values">
+                        <span><b>{formatWorkloadHours(assigned)} h</b>{t("schedules.assignedShort")}</span>
+                        <span><b>{formatWorkloadHours(scheduled)} h</b>{t("schedules.scheduledShort")}</span>
+                        <span className={overload > 0 ? "danger" : ""}>
+                          <b>{formatWorkloadHours(overload > 0 ? overload : remaining)} h</b>
+                          {t(overload > 0 ? "schedules.overloadShort" : "schedules.remainingShort")}
+                        </span>
+                      </div>
+                      <div className="schedule-workload-track"><i style={{ width: `${progress}%` }} /></div>
+                    </article>
+                  );
+                })}
+              {filteredTeachers.filter((teacher) => String(teacher.status || "ACTIVE").toUpperCase() === "ACTIVE").length === 0 && (
+                <p className="muted">{t("schedules.noTeacherMatch")}</p>
+              )}
+            </div>
+            <p className="schedule-touch-help">{t("schedules.touchTeacherHelp")}</p>
+          </section>
         )}
 
         <div className="schedule-grid-wrap">
           <table className="schedule-week-grid">
             <thead>
               <tr>
-                <th>Heure</th>
+                <th>{t("schedules.time")}</th>
                 {dayOptions.map((day) => (
-                  <th key={day.value}>{day.label}</th>
+                  <th key={day.value}>{t(`schedules.days.${day.value}`)}</th>
                 ))}
               </tr>
             </thead>
@@ -1150,49 +1403,63 @@ export default function SchedulesPage() {
 
                     return (
                       <td key={`${day.value}-${slot.start}`}>
-                        <div className="schedule-cell">
-                          {slot.pause && <span className="schedule-pause-label">Pause</span>}
+                        <div
+                          className={`schedule-cell ${dragOverCell === `${day.value}-${slot.start}` ? "schedule-cell-drop-target" : ""}`}
+                          onDragOver={(event) => {
+                            if (!canManageSchedules || slot.pause) return;
+                            event.preventDefault();
+                            event.dataTransfer.dropEffect = "move";
+                            setDragOverCell(`${day.value}-${slot.start}`);
+                          }}
+                          onDragLeave={() => setDragOverCell("")}
+                          onDrop={(event) => handleCellDrop(event, day.value, slot)}
+                        >
+                          {slot.pause && <span className="schedule-pause-label">{t("schedules.break")}</span>}
                           {items.map((schedule) => (
                             <button
                               key={schedule.id}
                               type="button"
                               className={`schedule-course schedule-course-${courseTone(schedule)}`}
-                              onClick={() => openEditModal(schedule)}
-                              title="Modifier ce créneau"
+                              draggable={canManageSchedules}
+                              onDragStart={(event) => beginScheduleDrag(event, schedule)}
+                              onDragEnd={() => setDragOverCell("")}
+                              onClick={() => canManageSchedules && openEditModal(schedule)}
+                              title={canManageSchedules ? t("schedules.editSlot") : t("schedules.readOnly")}
                             >
-                              <strong>{isExternalBusy(schedule) ? busyLabelForTeacher(selectedTeacher) : scheduleSubjectCode(schedule)}</strong>
+                              <strong>{isExternalBusy(schedule) ? busyLabelForTeacher(selectedTeacher, t) : scheduleSubjectCode(schedule)}</strong>
                               {scheduleSessionLabel(schedule) && <em>{scheduleSessionLabel(schedule)}</em>}
                               <span>
                                 {isExternalBusy(schedule)
-                                  ? schedule.notes || "Autre établissement"
+                                  ? schedule.notes || t("schedules.otherSchool")
                                   : mode === "class"
                                     ? schedule.teacher_name
                                     : abbreviateClassName(schedule)}
                               </span>
                               <small>
                                 {formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}
+                                {schedule.room ? ` · ${schedule.room}` : ""}
                               </small>
                             </button>
                           ))}
-                          {!slot.pause && mode === "teacher" && items.length === 0 && (
+                          {canManageSchedules && !slot.pause && mode === "teacher" && items.length === 0 && (
                             <button
                               type="button"
                               className="schedule-empty-cell"
-                              onClick={() => openCreateModal(day.value, slot)}
-                              title="Ajouter un créneau"
+                              onClick={() => openCreateModal(day.value, slot, selectedTeacher)}
+                              title={t("schedules.addSlot")}
                               disabled={!selectedTeacherId}
                             >
-                              Ajouter
+                              {t("common.add")}
                             </button>
                           )}
-                          {!slot.pause && mode === "class" && (
+                          {canManageSchedules && !slot.pause && mode === "class" && (
                             <button
                               type="button"
                               className={items.length ? "schedule-add-mini" : "schedule-empty-cell"}
                               onClick={() => openCreateModal(day.value, slot)}
-                              title="Ajouter un cours"
+                              title={t("schedules.addCourse")}
                             >
-                              {items.length ? "+" : "Ajouter"}
+                              {items.length ? "+" : t("common.add")}
                             </button>
                           )}
                         </div>
@@ -1206,33 +1473,33 @@ export default function SchedulesPage() {
         </div>
       </section>
 
-      {mode === "teacher" && (
+      {false && mode === "teacher" && (
         <section className="panel">
           <div className="panel-header compact-header">
             <div>
-              <h3>Professeurs</h3>
+              <h3>{t("schedules.teachers")}</h3>
               <p className="muted">
-                {academicWeekLabel(selectedYear, selectedWeek)} | Les compteurs excluent les créneaux occupés ailleurs.
+                {t("schedules.weekCountersHelp", { week: academicWeekLabel(selectedYear, selectedWeek, t) })}
               </p>
             </div>
             <button type="button" className="schedule-add-teacher-btn" onClick={() => openTeacherModal()}>
-              + Ajouter un professeur
+              + {t("schedules.addTeacher")}
             </button>
           </div>
 
           <div className="schedule-teacher-filters">
             <label>
-              <span>Recherche professeur</span>
+              <span>{t("schedules.teacherSearch")}</span>
               <input
-                placeholder="Nom, prénom ou téléphone"
+                placeholder={t("schedules.teacherSearchPlaceholder")}
                 value={teacherSearch}
                 onChange={(e) => setTeacherSearch(e.target.value)}
               />
             </label>
             <label>
-              <span>Matière</span>
+              <span>{t("common.subject")}</span>
               <select value={teacherSubjectFilter} onChange={(e) => setTeacherSubjectFilter(e.target.value)}>
-                <option value="">Toutes les matières</option>
+                <option value="">{t("schedules.allSubjects")}</option>
                 {allSubjects.map((subject) => (
                   <option key={subject.id} value={subject.id}>
                     {subjectLabel(subject)}
@@ -1250,52 +1517,52 @@ export default function SchedulesPage() {
               >
                 <div>
                   <p className="kpi-label">{teacherName(teacher)}</p>
-                  <p className="muted">Matières : {teacherSubjectLabels(teacher).join(", ") || teacherSubjectCodes(teacher, weeklyTeacherSchedules).join(", ") || "-"}</p>
-                  <p className="muted">Niveaux : {teacherClassLabels(teacher).join(", ") || "-"}</p>
-                  <p className="muted">Téléphone : {teacher.phone || "-"}</p>
-                  <p className="teacher-slot-count">{scheduleCountLabel(teacherCourseCount(teacher))}</p>
+                  <p className="muted">{t("schedules.subjectsLabel", { value: teacherSubjectLabels(teacher).join(", ") || teacherSubjectCodes(teacher, weeklyTeacherSchedules).join(", ") || "-" })}</p>
+                  <p className="muted">{t("schedules.levelsLabel", { value: teacherClassLabels(teacher).join(", ") || "-" })}</p>
+                  <p className="muted">{t("schedules.phoneLabel", { value: teacher.phone || "-" })}</p>
+                  <p className="teacher-slot-count">{t(teacherCourseCount(teacher) > 1 ? "schedules.slotsThisWeekPlural" : "schedules.slotsThisWeek", { count: teacherCourseCount(teacher) })}</p>
                 </div>
                 <div className="teacher-card-actions">
                   <button type="button" className="secondary-btn" onClick={() => viewTeacherSchedule(teacher)}>
-                    Voir l'EDT
+                    {t("schedules.viewSchedule")}
                   </button>
                   <button type="button" className="secondary-btn" onClick={() => openTeacherModal(teacher)}>
-                    Modifier
+                    {t("common.edit")}
                   </button>
                   <button type="button" className="secondary-btn" onClick={() => downloadWeeklyPdf("teacher", teacher)} disabled={pdfLoading}>
                     PDF
                   </button>
                   {canDeleteTeachers && (
                     <button type="button" className="danger-btn" onClick={() => removeTeacher(teacher)}>
-                      Supprimer
+                      {t("common.delete")}
                     </button>
                   )}
                 </div>
               </article>
             ))}
             {filteredTeachers.length === 0 && (
-              <p className="muted">Aucun professeur ne correspond à ces critères.</p>
+              <p className="muted">{t("schedules.noTeacherMatch")}</p>
             )}
           </div>
         </section>
       )}
 
-      {teacherModalOpen && (
+      {false && teacherModalOpen && (
         <div className="schedule-modal-backdrop" role="presentation">
           <section className="schedule-modal" aria-modal="true" role="dialog">
             <div className="schedule-modal-header">
               <div>
-                <p className="brand-kicker">{editingTeacherId ? "Modifier" : "Ajouter"}</p>
-                <h3>{editingTeacherId ? "Modifier le professeur" : "Nouveau professeur"}</h3>
+                <p className="brand-kicker">{editingTeacherId ? t("common.edit") : t("common.add")}</p>
+                <h3>{editingTeacherId ? t("schedules.editTeacher") : t("schedules.newTeacher")}</h3>
               </div>
               <button type="button" className="secondary-btn modal-close-btn" onClick={closeTeacherModal}>
-                Fermer
+                {t("common.close")}
               </button>
             </div>
 
             <form className="form-grid schedule-modal-form" onSubmit={submitTeacher}>
               <label>
-                <span>Nom</span>
+                <span>{t("common.lastName")}</span>
                 <input
                   value={teacherForm.last_name}
                   onChange={(e) => setTeacherForm((prev) => ({ ...prev, last_name: e.target.value }))}
@@ -1303,7 +1570,7 @@ export default function SchedulesPage() {
                 />
               </label>
               <label>
-                <span>Prénom</span>
+                <span>{t("common.firstName")}</span>
                 <input
                   value={teacherForm.first_name}
                   onChange={(e) => setTeacherForm((prev) => ({ ...prev, first_name: e.target.value }))}
@@ -1311,18 +1578,18 @@ export default function SchedulesPage() {
                 />
               </label>
               <label>
-                <span>Statut</span>
+                <span>{t("common.status")}</span>
                 <select
                   value={teacherForm.status}
                   onChange={(e) => setTeacherForm((prev) => ({ ...prev, status: e.target.value }))}
                 >
-                  <option value="ACTIVE">Actif</option>
-                  <option value="INACTIVE">Inactif</option>
+                  <option value="ACTIVE">{t("statuses.active")}</option>
+                  <option value="INACTIVE">{t("statuses.inactive")}</option>
                 </select>
               </label>
 
               <fieldset className="schedule-radio-group full-field">
-                <legend>Sexe</legend>
+                <legend>{t("schedules.gender")}</legend>
                 <label>
                   <input
                     type="radio"
@@ -1332,7 +1599,7 @@ export default function SchedulesPage() {
                     onChange={(e) => setTeacherForm((prev) => ({ ...prev, gender: e.target.value }))}
                     required
                   />
-                  <span>Homme</span>
+                  <span>{t("genders.man")}</span>
                 </label>
                 <label>
                   <input
@@ -1343,12 +1610,12 @@ export default function SchedulesPage() {
                     onChange={(e) => setTeacherForm((prev) => ({ ...prev, gender: e.target.value }))}
                     required
                   />
-                  <span>Femme</span>
+                  <span>{t("genders.woman")}</span>
                 </label>
               </fieldset>
 
               <label>
-                <span>Téléphone</span>
+                <span>{t("common.phone")}</span>
                 <input
                   value={teacherForm.phone}
                   onChange={(e) => setTeacherForm((prev) => ({ ...prev, phone: e.target.value }))}
@@ -1356,7 +1623,7 @@ export default function SchedulesPage() {
                 />
               </label>
               <label>
-                <span>Email facultatif</span>
+                <span>{t("schedules.optionalEmail")}</span>
                 <input
                   type="email"
                   value={teacherForm.email}
@@ -1364,7 +1631,7 @@ export default function SchedulesPage() {
                 />
               </label>
               <label className="full-field">
-                <span>Adresse</span>
+                <span>{t("common.address")}</span>
                 <input
                   value={teacherForm.address}
                   onChange={(e) => setTeacherForm((prev) => ({ ...prev, address: e.target.value }))}
@@ -1372,7 +1639,7 @@ export default function SchedulesPage() {
                 />
               </label>
               <label className="full-field">
-                <span>Établissement principal</span>
+                <span>{t("schedules.primarySchool")}</span>
                 <input
                   value={teacherForm.primary_school}
                   onChange={(e) => setTeacherForm((prev) => ({ ...prev, primary_school: e.target.value }))}
@@ -1381,7 +1648,7 @@ export default function SchedulesPage() {
               </label>
 
               <fieldset className="teacher-level-picker full-field">
-                <legend>Niveaux enseignés</legend>
+                <legend>{t("schedules.taughtLevels")}</legend>
                 {classes.map((item) => {
                   const id = String(item.id);
                   return (
@@ -1402,11 +1669,11 @@ export default function SchedulesPage() {
                     </label>
                   );
                 })}
-                {classes.length === 0 && <p className="muted">Aucune classe disponible.</p>}
+                {classes.length === 0 && <p className="muted">{t("schedules.noClassAvailable")}</p>}
               </fieldset>
 
               <fieldset className="teacher-level-picker full-field">
-                <legend>Matières enseignées</legend>
+                <legend>{t("schedules.taughtSubjects")}</legend>
                 {allSubjects.map((subject) => {
                   const id = String(subject.id);
                   return (
@@ -1427,11 +1694,11 @@ export default function SchedulesPage() {
                     </label>
                   );
                 })}
-                {allSubjects.length === 0 && <p className="muted">Aucune matière disponible.</p>}
+                {allSubjects.length === 0 && <p className="muted">{t("schedules.noSubjectAvailable")}</p>}
               </fieldset>
 
               <div className="form-actions full-field">
-                <button type="submit">{editingTeacherId ? "Enregistrer" : "Ajouter le professeur"}</button>
+                <button type="submit">{editingTeacherId ? t("common.save") : t("schedules.addTeacher")}</button>
               </div>
             </form>
           </section>
@@ -1443,18 +1710,18 @@ export default function SchedulesPage() {
           <section className="schedule-modal" aria-modal="true" role="dialog">
             <div className="schedule-modal-header">
               <div>
-                <p className="brand-kicker">{editingId ? "Modifier" : "Ajouter"}</p>
-                <h3>{editingId ? "Modifier le créneau" : "Nouveau cours"}</h3>
+                <p className="brand-kicker">{editingId ? t("common.edit") : t("common.add")}</p>
+                <h3>{editingId ? t("schedules.editCourse") : t("schedules.newCourse")}</h3>
               </div>
               <button type="button" className="secondary-btn modal-close-btn" onClick={closeModal}>
-                Fermer
+                {t("common.close")}
               </button>
             </div>
 
             <form className="form-grid schedule-modal-form" onSubmit={submitSchedule}>
               {mode === "teacher" && (
                 <label className="full-field">
-                  <span>Type</span>
+                  <span>{t("schedules.courseType")}</span>
                   <select
                     value={form.is_external ? "EXTERNAL" : "INTERNAL"}
                     onChange={(e) => {
@@ -1467,30 +1734,31 @@ export default function SchedulesPage() {
                         weekly_hours: isExternal ? "" : prev.weekly_hours,
                       }));
                       if (!isExternal && form.class_level_id) {
-                        loadSubjectsForClass(form.class_level_id, form.subject_id);
+                        loadSubjectsForClass(form.class_level_id, form.subject_id, selectedTeacher);
                       }
                     }}
                   >
-                    <option value="INTERNAL">Cours dans notre établissement</option>
-                    <option value="EXTERNAL">Ailleurs</option>
+                    <option value="INTERNAL">{t("schedules.internalCourse")}</option>
+                    <option value="EXTERNAL">{t("schedules.elsewhere")}</option>
                   </select>
                 </label>
               )}
 
-              {mode === "teacher" && !form.is_external && (
+              {!form.is_external && (
                 <label>
-                  <span>Classe</span>
+                  <span>{t("common.class")}</span>
                   <select
                     value={form.class_level_id}
                     onChange={(e) => {
                       const classLevelId = e.target.value;
                       setForm((prev) => ({ ...prev, class_level_id: classLevelId, subject_id: "", weekly_hours: "" }));
-                      loadSubjectsForClass(classLevelId);
+                      const currentTeacher = teachers.find((teacher) => String(teacher.id) === String(form.teacher_id));
+                      loadSubjectsForClass(classLevelId, "", mode === "teacher" ? selectedTeacher : currentTeacher);
                     }}
                     required
                   >
-                    <option value="">Choisir une classe</option>
-                    {teacherAllowedClasses.map((item) => (
+                    <option value="">{t("schedules.selectClass")}</option>
+                    {courseClassOptions.map((item) => (
                       <option key={item.id} value={item.id}>
                         {classDisplayName(item)}
                       </option>
@@ -1500,29 +1768,37 @@ export default function SchedulesPage() {
               )}
 
               {mode === "teacher" && !form.is_external && teacherAllowedClasses.length === 0 && (
-                <p className="error-text full-field">Ajoutez d'abord les niveaux enseignés dans la fiche du professeur.</p>
+                <p className="error-text full-field">{t("schedules.taughtLevelsRequired")}</p>
               )}
 
               {!form.is_external && (
                 <label>
-                  <span>Matière</span>
+                  <span>{t("common.subject")}</span>
                   <select
                     value={form.subject_id}
                     onChange={(e) => {
                       const subject = filteredSubjects.find((item) => String(item.id) === String(e.target.value));
-                      setForm((prev) => ({
-                        ...prev,
-                        subject_id: e.target.value,
-                        weekly_hours: subjectWeeklyHours(subject),
-                        teacher_id: mode === "class" ? "" : prev.teacher_id,
-                        teacher_name: mode === "class" ? "" : prev.teacher_name,
-                      }));
+                      setForm((prev) => {
+                        const currentTeacher = teachers.find((teacher) => String(teacher.id) === String(prev.teacher_id));
+                        const keepTeacher = mode !== "class" || (
+                          currentTeacher
+                          && teacherTeachesClass(currentTeacher, prev.class_level_id)
+                          && teacherTeachesSubject(currentTeacher, e.target.value)
+                        );
+                        return {
+                          ...prev,
+                          subject_id: e.target.value,
+                          weekly_hours: subjectWeeklyHours(subject),
+                          teacher_id: keepTeacher ? prev.teacher_id : "",
+                          teacher_name: keepTeacher ? prev.teacher_name : "",
+                        };
+                      });
                     }}
                     required
                     disabled={!form.class_level_id || subjectsLoading || filteredSubjects.length === 0}
                   >
                     <option value="">
-                      {subjectsLoading ? "Chargement des matières..." : "Sélectionner une matière"}
+                      {subjectsLoading ? t("schedules.loadingSubjects") : t("schedules.selectSubject")}
                     </option>
                     {filteredSubjects.map((subject) => (
                       <option key={subject.id} value={subject.id}>
@@ -1533,13 +1809,35 @@ export default function SchedulesPage() {
                 </label>
               )}
 
+              <label>
+                <span>{t("schedules.day")}</span>
+                <select value={form.day_of_week} onChange={(e) => setForm((prev) => ({ ...prev, day_of_week: e.target.value }))} required>
+                  {dayOptions.map((day) => <option key={day.value} value={day.value}>{t(`schedules.days.${day.value}`)}</option>)}
+                </select>
+              </label>
+
+              <label>
+                <span>{t("schedules.startTime")}</span>
+                <input type="time" value={form.start_time} onChange={(e) => setForm((prev) => ({ ...prev, start_time: e.target.value }))} required />
+              </label>
+
+              <label>
+                <span>{t("schedules.endTime")}</span>
+                <input type="time" value={form.end_time} onChange={(e) => setForm((prev) => ({ ...prev, end_time: e.target.value }))} required />
+              </label>
+
+              <label>
+                <span>{t("schedules.room")}</span>
+                <input value={form.room} onChange={(e) => setForm((prev) => ({ ...prev, room: e.target.value }))} placeholder={t("schedules.roomPlaceholder")} />
+              </label>
+
               {mode === "teacher" && !form.is_external && form.class_level_id && !subjectsLoading && filteredSubjects.length === 0 && (
-                <p className="error-text full-field">Ajoutez d'abord les matières enseignées dans la fiche du professeur.</p>
+                <p className="error-text full-field">{t("schedules.taughtSubjectsRequired")}</p>
               )}
 
               {!form.is_external && (
                 <label>
-                  <span>Heures par semaine</span>
+                  <span>{t("schedules.weeklyHours")}</span>
                   <input
                     type="number"
                     min="1"
@@ -1553,7 +1851,7 @@ export default function SchedulesPage() {
 
               {mode === "class" && (
                 <label>
-                  <span>Professeur</span>
+                  <span>{t("roles.professeur")}</span>
                   <select
                     value={form.teacher_id}
                     onChange={(e) => {
@@ -1563,7 +1861,7 @@ export default function SchedulesPage() {
                     }}
                     required
                   >
-                    <option value="">Sélectionner un professeur</option>
+                    <option value="">{t("schedules.selectTeacher")}</option>
                     {courseTeacherOptions.map((teacher) => (
                       <option key={teacher.id} value={teacher.id}>
                         {teacherName(teacher)}
@@ -1575,15 +1873,15 @@ export default function SchedulesPage() {
 
               {mode === "class" && !form.is_external && form.subject_id && courseTeacherOptions.length === 0 && (
                 <p className="error-text full-field">
-                  Aucun professeur n'enseigne cette matière pour cette classe.
+                  {t("schedules.noQualifiedTeacher")}
                 </p>
               )}
 
               {form.is_external && (
                 <label className="full-field">
-                  <span>Note</span>
+                  <span>{t("schedules.note")}</span>
                   <input
-                    placeholder="Autre établissement"
+                    placeholder={t("schedules.otherSchool")}
                     value={form.notes}
                     onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
                   />
@@ -1591,13 +1889,13 @@ export default function SchedulesPage() {
               )}
 
               {!form.is_external && form.class_level_id && !subjectsLoading && subjects.length === 0 && (
-                <p className="error-text full-field">Aucune matière active n'est liée à cette classe.</p>
+                <p className="error-text full-field">{t("schedules.noActiveSubject")}</p>
               )}
               <div className="form-actions full-field">
-                <button type="submit">{editingId ? "Enregistrer" : "Créer le cours"}</button>
+                <button type="submit">{editingId ? t("common.save") : t("schedules.createCourse")}</button>
                 {editingId && (
                   <button type="button" className="danger-btn" onClick={removeSchedule}>
-                    Supprimer
+                    {t("common.delete")}
                   </button>
                 )}
               </div>
@@ -1611,11 +1909,11 @@ export default function SchedulesPage() {
           <section className="schedule-modal schedule-pdf-modal" aria-modal="true" role="dialog">
             <div className="schedule-modal-header">
               <div>
-                <p className="brand-kicker">Aperçu</p>
-                <h3>Voir PDF</h3>
+                <p className="brand-kicker">{t("schedules.preview")}</p>
+                <h3>{t("schedules.viewPdf")}</h3>
               </div>
               <button type="button" className="secondary-btn modal-close-btn" onClick={closePdfPreview}>
-                Fermer
+                {t("common.close")}
               </button>
             </div>
             <object className="schedule-pdf-preview" data={pdfPreview.url} type="application/pdf">
@@ -1623,7 +1921,7 @@ export default function SchedulesPage() {
             </object>
             <div className="form-actions full-field">
               <button type="button" onClick={() => pdfPreview.blob && downloadBlob(pdfPreview.blob, pdfPreview.filename)}>
-                Télécharger
+                {t("schedules.download")}
               </button>
             </div>
           </section>

@@ -30,6 +30,10 @@ class ScheduleService
         } else {
             $conditions[] = 'sc.school_id = ?';
             $params[] = $schoolId;
+            if ($role === 'professeur') {
+                $conditions[] = 'sc.teacher_id = ?';
+                $params[] = (int)(Request::get('auth_user', [])['id'] ?? 0);
+            }
         }
 
         $classLevelId = isset($filters['class_level_id']) ? (int)$filters['class_level_id'] : 0;
@@ -50,7 +54,7 @@ class ScheduleService
             $params[] = $status;
         }
 
-        $teacherId = isset($filters['teacher_id']) ? (int)$filters['teacher_id'] : 0;
+        $teacherId = $role === 'professeur' ? 0 : (isset($filters['teacher_id']) ? (int)$filters['teacher_id'] : 0);
         $teacherName = trim((string)($filters['teacher_name'] ?? ''));
 
         if ($teacherId > 0 && $teacherName !== '') {
@@ -104,6 +108,90 @@ class ScheduleService
         return $this->decorateSubjectSessions($stmt->fetchAll());
     }
 
+    public function getWorkloads(array $filters = []): array
+    {
+        $pdo = Database::connect();
+        [$role, $schoolId] = $this->authScope();
+        if ($role === 'super_admin') {
+            $schoolId = isset($filters['school_id']) ? (int)$filters['school_id'] : 0;
+        }
+
+        $yearValue = isset($filters['year_value']) ? (int)$filters['year_value'] : 0;
+        $weekNumber = isset($filters['week_number']) ? (int)$filters['week_number'] : 0;
+        if (!$schoolId || $yearValue < 2000 || $yearValue > 2100 || $weekNumber < 1 || $weekNumber > 53) {
+            return ['error' => 'Ecole, annee scolaire et semaine valides obligatoires'];
+        }
+
+        $teacherId = $role === 'professeur'
+            ? (int)(Request::get('auth_user', [])['id'] ?? 0)
+            : (int)($filters['teacher_id'] ?? 0);
+        $teacherSql = '
+            SELECT id, first_name, last_name, photo_path
+            FROM users
+            WHERE school_id = ? AND role = "professeur" AND status = "ACTIVE"
+        ';
+        $teacherParams = [$schoolId];
+        if ($teacherId > 0) {
+            $teacherSql .= ' AND id = ?';
+            $teacherParams[] = $teacherId;
+        }
+        $teacherSql .= ' ORDER BY last_name ASC, first_name ASC';
+        $teacherStmt = $pdo->prepare($teacherSql);
+        $teacherStmt->execute($teacherParams);
+        $teachers = $teacherStmt->fetchAll();
+
+        $assignmentStmt = $pdo->prepare('
+            SELECT ta.teacher_id,
+                   ROUND(SUM(ta.weekly_hours), 2) AS assigned_hours,
+                   COUNT(DISTINCT ta.class_level_id) AS class_count,
+                   COUNT(DISTINCT ta.subject_id) AS subject_count
+            FROM teacher_assignments ta
+            INNER JOIN academic_years ay ON ay.id = ta.academic_year_id
+            WHERE ta.school_id = ? AND ta.status = "ACTIVE" AND YEAR(ay.start_date) = ?
+            GROUP BY ta.teacher_id
+        ');
+        $assignmentStmt->execute([$schoolId, $yearValue]);
+        $assignments = [];
+        foreach ($assignmentStmt->fetchAll() as $row) {
+            $assignments[(int)$row['teacher_id']] = $row;
+        }
+
+        $scheduleStmt = $pdo->prepare('
+            SELECT teacher_id,
+                   ROUND(SUM(CASE WHEN is_external = 0 THEN TIME_TO_SEC(TIMEDIFF(end_time, start_time)) ELSE 0 END) / 3600, 2) AS scheduled_hours,
+                   ROUND(SUM(CASE WHEN is_external = 1 THEN TIME_TO_SEC(TIMEDIFF(end_time, start_time)) ELSE 0 END) / 3600, 2) AS external_hours,
+                   COUNT(*) AS session_count
+            FROM schedules
+            WHERE school_id = ? AND year_value = ? AND week_number = ?
+              AND status = "ACTIVE" AND teacher_id IS NOT NULL
+            GROUP BY teacher_id
+        ');
+        $scheduleStmt->execute([$schoolId, $yearValue, $weekNumber]);
+        $scheduled = [];
+        foreach ($scheduleStmt->fetchAll() as $row) {
+            $scheduled[(int)$row['teacher_id']] = $row;
+        }
+
+        return array_map(static function (array $teacher) use ($assignments, $scheduled): array {
+            $id = (int)$teacher['id'];
+            $assignedHours = (float)($assignments[$id]['assigned_hours'] ?? 0);
+            $scheduledHours = (float)($scheduled[$id]['scheduled_hours'] ?? 0);
+            return [
+                'teacher_id' => $id,
+                'teacher_name' => trim((string)$teacher['first_name'] . ' ' . (string)$teacher['last_name']),
+                'photo_path' => $teacher['photo_path'] ?? null,
+                'assigned_hours' => $assignedHours,
+                'scheduled_hours' => $scheduledHours,
+                'external_hours' => (float)($scheduled[$id]['external_hours'] ?? 0),
+                'remaining_hours' => max(0, $assignedHours - $scheduledHours),
+                'overload_hours' => max(0, $scheduledHours - $assignedHours),
+                'session_count' => (int)($scheduled[$id]['session_count'] ?? 0),
+                'class_count' => (int)($assignments[$id]['class_count'] ?? 0),
+                'subject_count' => (int)($assignments[$id]['subject_count'] ?? 0),
+            ];
+        }, $teachers);
+    }
+
     public function getById(int $scheduleId): array|false
     {
         if ($scheduleId <= 0) {
@@ -128,6 +216,10 @@ class ScheduleService
         if ($role !== 'super_admin') {
             $sql .= ' AND sc.school_id = ?';
             $params[] = $schoolId;
+            if ($role === 'professeur') {
+                $sql .= ' AND sc.teacher_id = ?';
+                $params[] = (int)(Request::get('auth_user', [])['id'] ?? 0);
+            }
         }
 
         $stmt = $pdo->prepare($sql . ' LIMIT 1');
@@ -155,18 +247,23 @@ class ScheduleService
             return $payload;
         }
 
-        if (!$isExternal && !empty($payload['weekly_hours'])) {
-            (new SubjectService())->updateWeeklyHours((int)$payload['subject_id'], (int)$payload['class_level_id'], (int)$payload['weekly_hours']);
-        }
-
         $conflict = $this->findConflict($pdo, $payload);
         if ($conflict) {
-            return ['error' => 'Un autre cours existe deja pour cette classe sur ce creneau'];
+            return ['error' => 'Un autre cours existe deja pour cette classe sur ce creneau', 'code' => 'CLASS_SLOT_CONFLICT', 'conflict' => true];
         }
 
         $teacherConflict = $this->findTeacherConflict($pdo, $payload);
         if ($teacherConflict) {
-            return ['error' => $this->teacherConflictMessage($teacherConflict), 'conflict' => true];
+            return ['error' => $this->teacherConflictMessage($teacherConflict), 'code' => 'TEACHER_SLOT_CONFLICT', 'conflict' => true];
+        }
+
+        $workloadError = $this->validateWorkloadLimits($pdo, $payload);
+        if ($workloadError !== null) {
+            return ['error' => $workloadError['message'], 'code' => $workloadError['code'], 'conflict' => true];
+        }
+
+        if (!$isExternal && !empty($payload['weekly_hours'])) {
+            (new SubjectService())->updateWeeklyHours((int)$payload['subject_id'], (int)$payload['class_level_id'], (int)$payload['weekly_hours']);
         }
 
         try {
@@ -198,6 +295,10 @@ class ScheduleService
             ]);
         } catch (PDOException $e) {
             return ['error' => $this->databaseErrorMessage($e)];
+        }
+
+        if (!$isExternal) {
+            $this->syncTeacherAssignment($pdo, $payload);
         }
 
         return [
@@ -236,18 +337,23 @@ class ScheduleService
         }
         $payload['id'] = $scheduleId;
 
-        if (!$isExternal && !empty($payload['weekly_hours'])) {
-            (new SubjectService())->updateWeeklyHours((int)$payload['subject_id'], (int)$payload['class_level_id'], (int)$payload['weekly_hours']);
-        }
-
         $conflict = $this->findConflict($pdo, $payload, $scheduleId);
         if ($conflict) {
-            return ['error' => 'Un autre cours existe deja pour cette classe sur ce creneau'];
+            return ['error' => 'Un autre cours existe deja pour cette classe sur ce creneau', 'code' => 'CLASS_SLOT_CONFLICT', 'conflict' => true];
         }
 
         $teacherConflict = $this->findTeacherConflict($pdo, $payload, $scheduleId);
         if ($teacherConflict) {
-            return ['error' => $this->teacherConflictMessage($teacherConflict), 'conflict' => true];
+            return ['error' => $this->teacherConflictMessage($teacherConflict), 'code' => 'TEACHER_SLOT_CONFLICT', 'conflict' => true];
+        }
+
+        $workloadError = $this->validateWorkloadLimits($pdo, $payload, $scheduleId);
+        if ($workloadError !== null) {
+            return ['error' => $workloadError['message'], 'code' => $workloadError['code'], 'conflict' => true];
+        }
+
+        if (!$isExternal && !empty($payload['weekly_hours'])) {
+            (new SubjectService())->updateWeeklyHours((int)$payload['subject_id'], (int)$payload['class_level_id'], (int)$payload['weekly_hours']);
         }
 
         try {
@@ -295,6 +401,10 @@ class ScheduleService
             return ['error' => $this->databaseErrorMessage($e)];
         }
 
+        if (!$isExternal) {
+            $this->syncTeacherAssignment($pdo, $payload);
+        }
+
         return [
             'id' => $scheduleId,
             'message' => 'Schedule updated successfully',
@@ -316,6 +426,41 @@ class ScheduleService
             'id' => $scheduleId,
             'message' => 'Schedule deleted successfully',
         ];
+    }
+
+    public function move(int $scheduleId, array $data): array
+    {
+        $existing = $this->getById($scheduleId);
+        if (!$existing) {
+            return ['error' => 'Schedule not found'];
+        }
+
+        $weeklyHours = (int)($existing['subject_weekly_hours'] ?? 0);
+        if ((int)($existing['is_external'] ?? 0) === 0 && $weeklyHours <= 0) {
+            $stmt = Database::connect()->prepare('
+                SELECT CEIL(COALESCE(SUM(TIME_TO_SEC(TIMEDIFF(end_time, start_time))) / 3600, 1))
+                FROM schedules
+                WHERE school_id = ? AND class_level_id = ? AND subject_id = ?
+                  AND year_value = ? AND week_number = ? AND status = "ACTIVE" AND is_external = 0
+            ');
+            $stmt->execute([
+                $existing['school_id'],
+                $existing['class_level_id'],
+                $existing['subject_id'],
+                $existing['year_value'],
+                $existing['week_number'],
+            ]);
+            $weeklyHours = max(1, (int)$stmt->fetchColumn());
+        }
+
+        return $this->update($scheduleId, [
+            'year_value' => $data['year_value'] ?? $existing['year_value'],
+            'week_number' => $data['week_number'] ?? $existing['week_number'],
+            'day_of_week' => $data['day_of_week'] ?? $existing['day_of_week'],
+            'start_time' => $data['start_time'] ?? $existing['start_time'],
+            'end_time' => $data['end_time'] ?? $existing['end_time'],
+            'weekly_hours' => $weeklyHours,
+        ]);
     }
 
     private function validatedPayload(PDO $pdo, array $data, ?array $classLevel, string $role, ?int $actorSchoolId): array
@@ -484,6 +629,142 @@ class ScheduleService
         return $stmt->fetch() ?: false;
     }
 
+    private function validateWorkloadLimits(PDO $pdo, array $payload, ?int $ignoreId = null): ?array
+    {
+        if (
+            $payload['status'] !== 'ACTIVE'
+            || (int)$payload['is_external'] === 1
+            || empty($payload['teacher_id'])
+            || empty($payload['class_level_id'])
+            || empty($payload['subject_id'])
+        ) {
+            return null;
+        }
+
+        $durationHours = (strtotime((string)$payload['end_time']) - strtotime((string)$payload['start_time'])) / 3600;
+        if ($durationHours <= 0) {
+            return ['code' => 'INVALID_COURSE_DURATION', 'message' => 'La duree du cours est invalide'];
+        }
+
+        $classSql = '
+            SELECT COALESCE(SUM(TIME_TO_SEC(TIMEDIFF(end_time, start_time))) / 3600, 0)
+            FROM schedules
+            WHERE school_id = ? AND class_level_id = ? AND subject_id = ?
+              AND year_value = ? AND week_number = ? AND status = "ACTIVE" AND is_external = 0
+        ';
+        $classParams = [
+            $payload['school_id'],
+            $payload['class_level_id'],
+            $payload['subject_id'],
+            $payload['year_value'],
+            $payload['week_number'],
+        ];
+        if ($ignoreId !== null) {
+            $classSql .= ' AND id != ?';
+            $classParams[] = $ignoreId;
+        }
+        $classStmt = $pdo->prepare($classSql);
+        $classStmt->execute($classParams);
+        $classScheduledHours = (float)$classStmt->fetchColumn();
+        if ($classScheduledHours + $durationHours > (float)$payload['weekly_hours'] + 0.001) {
+            return [
+                'code' => 'SUBJECT_WEEKLY_HOURS_EXCEEDED',
+                'message' => sprintf(
+                    'La charge de cette matiere dans cette classe depasse %.2f h par semaine',
+                    (float)$payload['weekly_hours']
+                ),
+            ];
+        }
+
+        $assignmentStmt = $pdo->prepare('
+            SELECT COALESCE(SUM(ta.weekly_hours), 0) AS total_hours,
+                   MAX(CASE WHEN ta.subject_id = ? AND ta.class_level_id = ? THEN ta.weekly_hours ELSE NULL END) AS current_hours
+            FROM teacher_assignments ta
+            INNER JOIN academic_years ay ON ay.id = ta.academic_year_id
+            WHERE ta.school_id = ? AND ta.teacher_id = ? AND ta.status = "ACTIVE"
+              AND YEAR(ay.start_date) = ?
+        ');
+        $assignmentStmt->execute([
+            $payload['subject_id'],
+            $payload['class_level_id'],
+            $payload['school_id'],
+            $payload['teacher_id'],
+            $payload['year_value'],
+        ]);
+        $assignment = $assignmentStmt->fetch() ?: [];
+        $assignedHours = (float)($assignment['total_hours'] ?? 0);
+        $currentAssignmentHours = $assignment['current_hours'] === null ? null : (float)$assignment['current_hours'];
+        $expectedAssignedHours = $currentAssignmentHours === null
+            ? $assignedHours + (float)$payload['weekly_hours']
+            : $assignedHours - $currentAssignmentHours + (float)$payload['weekly_hours'];
+
+        $teacherSql = '
+            SELECT COALESCE(SUM(TIME_TO_SEC(TIMEDIFF(end_time, start_time))) / 3600, 0)
+            FROM schedules
+            WHERE school_id = ? AND teacher_id = ? AND year_value = ? AND week_number = ?
+              AND status = "ACTIVE" AND is_external = 0
+        ';
+        $teacherParams = [
+            $payload['school_id'],
+            $payload['teacher_id'],
+            $payload['year_value'],
+            $payload['week_number'],
+        ];
+        if ($ignoreId !== null) {
+            $teacherSql .= ' AND id != ?';
+            $teacherParams[] = $ignoreId;
+        }
+        $teacherStmt = $pdo->prepare($teacherSql);
+        $teacherStmt->execute($teacherParams);
+        $teacherScheduledHours = (float)$teacherStmt->fetchColumn();
+        if ($expectedAssignedHours > 0 && $teacherScheduledHours + $durationHours > $expectedAssignedHours + 0.001) {
+            return [
+                'code' => 'TEACHER_WEEKLY_HOURS_EXCEEDED',
+                'message' => sprintf(
+                    'La charge planifiee de ce professeur depasse sa charge affectee de %.2f h par semaine',
+                    $expectedAssignedHours
+                ),
+            ];
+        }
+
+        return null;
+    }
+
+    private function syncTeacherAssignment(PDO $pdo, array $payload): void
+    {
+        if (empty($payload['teacher_id']) || empty($payload['subject_id']) || empty($payload['class_level_id'])) {
+            return;
+        }
+
+        $yearStmt = $pdo->prepare('
+            SELECT id
+            FROM academic_years
+            WHERE school_id = ? AND YEAR(start_date) = ?
+            ORDER BY is_current DESC, id DESC
+            LIMIT 1
+        ');
+        $yearStmt->execute([$payload['school_id'], $payload['year_value']]);
+        $academicYearId = (int)$yearStmt->fetchColumn();
+        if ($academicYearId <= 0) {
+            return;
+        }
+
+        $stmt = $pdo->prepare('
+            INSERT INTO teacher_assignments (
+                school_id, academic_year_id, teacher_id, subject_id, class_level_id, weekly_hours, status
+            ) VALUES (?, ?, ?, ?, ?, ?, "ACTIVE")
+            ON DUPLICATE KEY UPDATE weekly_hours = VALUES(weekly_hours), status = "ACTIVE"
+        ');
+        $stmt->execute([
+            $payload['school_id'],
+            $academicYearId,
+            $payload['teacher_id'],
+            $payload['subject_id'],
+            $payload['class_level_id'],
+            $payload['weekly_hours'],
+        ]);
+    }
+
     private function decorateSubjectSessions(array $rows): array
     {
         $counters = [];
@@ -635,7 +916,7 @@ class ScheduleService
             WHERE id = ?
               AND school_id = ?
               AND status = "ACTIVE"
-              AND role IN ("professeur", "user")
+              AND role = "professeur"
             LIMIT 1
         ');
         $stmt->execute([$teacherId, $schoolId]);

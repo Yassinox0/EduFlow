@@ -34,6 +34,7 @@ class AuthService
             'email' => $user['email'],
             'role' => $user['role'],
             'school_id' => $user['school_id'] !== null ? (int)$user['school_id'] : null,
+            'token_version' => (int)($user['token_version'] ?? 1),
             'iat' => time(),
             'exp' => time() + $ttl,
         ];
@@ -48,6 +49,8 @@ class AuthService
                 'email' => $user['email'],
                 'role' => $user['role'],
                 'status' => $user['status'],
+                'must_change_password' => (bool)($user['must_change_password'] ?? false),
+                'photo_path' => $user['photo_path'] ?? null,
                 'school_name' => $user['school_name'],
                 'school_code' => $user['school_code'],
                 'school_email_domain' => $user['school_email_domain'],

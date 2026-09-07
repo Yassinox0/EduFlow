@@ -1,20 +1,22 @@
 import { useMemo, useState } from "react";
 import { SCHOOL_YEAR_MONTH_OPTIONS } from "../config/schoolOptions";
 import { getMonthlyFees } from "../services/monthlyFeeService";
+import useI18n from "../hooks/useI18n";
 
-const formatMoney = (value) =>
-  new Intl.NumberFormat("fr-MA", { style: "currency", currency: "MAD" }).format(
+const formatMoney = (value, language) =>
+  new Intl.NumberFormat(language === "ar" ? "ar-MA" : "fr-MA", { style: "currency", currency: "MAD" }).format(
     Number(value || 0)
   );
 
-const statusLabel = (value) => {
-  if (value === "PAID") return "Paye";
-  if (value === "PARTIAL") return "Partiel";
-  if (value === "UNPAID") return "Impaye";
+const statusLabel = (value, t) => {
+  if (value === "PAID") return t("statuses.paid");
+  if (value === "PARTIAL") return t("statuses.partial");
+  if (value === "UNPAID") return t("statuses.unpaid");
   return value || "-";
 };
 
 export default function MonthlyFeesPage() {
+  const { language, t } = useI18n();
   const [monthlyFees, setMonthlyFees] = useState([]);
   const [filters, setFilters] = useState({
     search: "",
@@ -63,7 +65,7 @@ export default function MonthlyFeesPage() {
     } catch {
       setMonthlyFees([]);
       setFiltersApplied(false);
-      setError("Impossible d'appliquer les filtres.");
+      setError(t("monthlyFees.loadError"));
     } finally {
       setLoading(false);
     }
@@ -86,54 +88,54 @@ export default function MonthlyFeesPage() {
   return (
     <div className="admin-grid">
       <section className="panel">
-        <h2>Mensualites</h2>
-        <p className="muted">Suivi des dues mensuelles par eleve et par periode.</p>
+        <h2>{t("monthlyFees.title")}</h2>
+        <p className="muted">{t("monthlyFees.description")}</p>
       </section>
 
       <section className="kpi-grid three-col">
         <article className="panel kpi">
-          <p className="kpi-label">Total facture</p>
-          <h2>{formatMoney(totals.total)}</h2>
+          <p className="kpi-label">{t("monthlyFees.totalBilled")}</p>
+          <h2>{formatMoney(totals.total, language)}</h2>
         </article>
         <article className="panel kpi">
-          <p className="kpi-label">Total encaisse</p>
-          <h2>{formatMoney(totals.paid)}</h2>
+          <p className="kpi-label">{t("monthlyFees.totalCollected")}</p>
+          <h2>{formatMoney(totals.paid, language)}</h2>
         </article>
         <article className="panel kpi">
-          <p className="kpi-label">Total restant</p>
-          <h2>{formatMoney(totals.remaining)}</h2>
+          <p className="kpi-label">{t("monthlyFees.totalRemaining")}</p>
+          <h2>{formatMoney(totals.remaining, language)}</h2>
         </article>
       </section>
 
       <section className="panel">
-        <h3>Filtres</h3>
+        <h3>{t("monthlyFees.filters")}</h3>
         <form className="form-grid" onSubmit={applyFilters}>
           <select
             value={filters.month_label}
             onChange={(e) => setFilters({ ...filters, month_label: e.target.value })}
           >
             {SCHOOL_YEAR_MONTH_OPTIONS.map((month) => (
-              <option key={month.value} value={month.value}>{month.label}</option>
+              <option key={month.value} value={month.value}>{t(`months.${month.value}`)}</option>
             ))}
           </select>
           <input
-            placeholder="Rechercher un eleve"
+            placeholder={t("monthlyFees.searchStudent")}
             value={filters.search}
             onChange={(e) => setFilters({ ...filters, search: e.target.value })}
           />
           <input
-            placeholder="Filtrer par niveau"
+            placeholder={t("monthlyFees.filterLevel")}
             value={filters.class_level}
             onChange={(e) => setFilters({ ...filters, class_level: e.target.value })}
           />
           <input
-            placeholder="Filtrer par classe/groupe"
+            placeholder={t("monthlyFees.filterClass")}
             value={filters.class_name}
             onChange={(e) => setFilters({ ...filters, class_name: e.target.value })}
           />
           <input
             type="number"
-            placeholder="Annee"
+            placeholder={t("common.year")}
             value={filters.year_value}
             onChange={(e) => setFilters({ ...filters, year_value: e.target.value })}
           />
@@ -141,16 +143,16 @@ export default function MonthlyFeesPage() {
             value={filters.status}
             onChange={(e) => setFilters({ ...filters, status: e.target.value })}
           >
-            <option value="">Tous les statuts</option>
-            <option value="PAID">Paye</option>
-            <option value="PARTIAL">Partiel</option>
-            <option value="UNPAID">Impaye</option>
+            <option value="">{t("monthlyFees.allStatuses")}</option>
+            <option value="PAID">{t("statuses.paid")}</option>
+            <option value="PARTIAL">{t("statuses.partial")}</option>
+            <option value="UNPAID">{t("statuses.unpaid")}</option>
           </select>
           <button type="button" className="secondary-btn" onClick={resetFilters}>
-            Réinitialiser
+            {t("common.reset")}
           </button>
           <button type="submit" disabled={loading}>
-            {loading ? "Chargement..." : "Appliquer"}
+            {loading ? t("common.loading") : t("common.apply")}
           </button>
         </form>
         {error && <p className="error-text">{error}</p>}
@@ -161,14 +163,14 @@ export default function MonthlyFeesPage() {
           <table>
             <thead>
               <tr>
-                <th>Eleve</th>
-                <th>Niveau</th>
-                <th>Mois</th>
-                <th>Annee</th>
-                <th>Total</th>
-                <th>Paye</th>
-                <th>Reste</th>
-                <th>Statut</th>
+                <th>{t("common.student")}</th>
+                <th>{t("common.level")}</th>
+                <th>{t("monthlyFees.month")}</th>
+                <th>{t("common.year")}</th>
+                <th>{t("monthlyFees.billed")}</th>
+                <th>{t("monthlyFees.paid")}</th>
+                <th>{t("monthlyFees.remaining")}</th>
+                <th>{t("common.status")}</th>
               </tr>
             </thead>
             <tbody>
@@ -178,18 +180,18 @@ export default function MonthlyFeesPage() {
                     {fee.first_name} {fee.last_name}
                   </td>
                   <td>{fee.class_level_name || "-"}</td>
-                  <td>{fee.month_label}</td>
+                  <td>{t(`months.${String(fee.month_label).padStart(2, "0")}`)}</td>
                   <td>{fee.year_value}</td>
-                  <td>{formatMoney(fee.total_amount)}</td>
-                  <td>{formatMoney(fee.amount_paid)}</td>
-                  <td>{formatMoney(fee.remaining_amount)}</td>
-                  <td>{statusLabel(fee.status)}</td>
+                  <td>{formatMoney(fee.total_amount, language)}</td>
+                  <td>{formatMoney(fee.amount_paid, language)}</td>
+                  <td>{formatMoney(fee.remaining_amount, language)}</td>
+                  <td>{statusLabel(fee.status, t)}</td>
                 </tr>
               ))}
               {monthlyFees.length === 0 && (
                 <tr>
                   <td colSpan="8" className="table-empty">
-                    {filtersApplied ? "Aucune mensualite trouvee." : "Appliquez un filtre pour afficher les mensualites."}
+                    {filtersApplied ? t("monthlyFees.emptyFiltered") : t("monthlyFees.emptyInitial")}
                   </td>
                 </tr>
               )}

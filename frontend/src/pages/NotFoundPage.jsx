@@ -1,3 +1,6 @@
+import useI18n from "../hooks/useI18n";
+
 export default function NotFoundPage() {
-  return <div>404 - Page introuvable</div>;
+  const { t } = useI18n();
+  return <div>{t("notFound.message")}</div>;
 }

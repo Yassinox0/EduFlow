@@ -61,9 +61,16 @@ class PaymentService
             return ['error' => 'student_id is required'];
         }
 
-        $studentStmt = $pdo->prepare('SELECT id FROM students WHERE id = ? AND school_id = ? LIMIT 1');
+        $studentStmt = $pdo->prepare('
+            SELECT s.id, sch.code AS school_code
+            FROM students s
+            INNER JOIN schools sch ON sch.id = s.school_id
+            WHERE s.id = ? AND s.school_id = ?
+            LIMIT 1
+        ');
         $studentStmt->execute([$studentId, $schoolId]);
-        if (!$studentStmt->fetch()) {
+        $student = $studentStmt->fetch();
+        if (!$student) {
             return ['error' => 'Student not found for this school'];
         }
 
@@ -145,6 +152,31 @@ class PaymentService
                 $updatedStatus = 'PARTIAL';
             }
 
+            $authUser = Request::get('auth_user', []);
+            $issuedByUserId = isset($authUser['id']) ? (int)$authUser['id'] : null;
+            $schoolCode = strtoupper((string)preg_replace('/[^A-Za-z0-9]+/', '-', (string)$student['school_code']));
+            $schoolCode = trim($schoolCode, '-') ?: 'ECOLE';
+            $receiptNumber = sprintf('%s-%s-%06d', $schoolCode, substr($paymentDate, 0, 4), $paymentId);
+
+            $updatePayment = $pdo->prepare('
+                UPDATE payments
+                SET
+                    receipt_number = ?,
+                    fee_total_at_payment = ?,
+                    paid_before_payment = ?,
+                    remaining_after_payment = ?,
+                    issued_by_user_id = ?
+                WHERE id = ?
+            ');
+            $updatePayment->execute([
+                $receiptNumber,
+                $totalAmount,
+                $currentPaid,
+                $updatedRemaining,
+                $issuedByUserId ?: null,
+                $paymentId,
+            ]);
+
             $updateFee = $pdo->prepare('
                 UPDATE monthly_fees
                 SET amount_paid = ?, remaining_amount = ?, status = ?
@@ -160,6 +192,7 @@ class PaymentService
                 'id' => $paymentId,
                 'school_id' => $schoolId,
                 'monthly_fee_id' => (int)$fee['id'],
+                'receipt_number' => $receiptNumber,
                 'monthly_fee_status' => $updatedStatus,
                 'monthly_fee_remaining_amount' => $updatedRemaining,
                 'message' => 'Payment created successfully',

@@ -60,8 +60,8 @@ const subjectColor = (code) => {
 
 const isExternalSchedule = (schedule) => Number(schedule?.is_external) === 1 || schedule?.is_external === true;
 
-const scheduleSubjectCode = (schedule) =>
-  isExternalSchedule(schedule) ? "AILLEURS" : schedule?.subject_code || schedule?.subject_abbreviation || schedule?.subject || "";
+const scheduleSubjectCode = (schedule, elsewhereLabel = "EXTERNAL") =>
+  isExternalSchedule(schedule) ? elsewhereLabel : schedule?.subject_code || schedule?.subject_abbreviation || schedule?.subject || "";
 
 const scheduleSessionLabel = (schedule) => {
   if (isExternalSchedule(schedule)) {
@@ -107,9 +107,9 @@ const abbreviateClassName = (schedule) => {
   return normalized && !/^\d+$/.test(normalized) ? normalized : rawName || "";
 };
 
-const compactClassName = (schedule) => {
+const compactClassName = (schedule, otherSchoolLabel = "-") => {
   if (!schedule || isExternalSchedule(schedule)) {
-    return "Autre établissement";
+    return otherSchoolLabel;
   }
 
   const abbreviated = abbreviateClassName(schedule);
@@ -253,12 +253,12 @@ export const downloadBlob = (blob, filename) => {
 const safeFilePart = (value) =>
   String(value || "")
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
     .replace(/^-+|-+$/g, "")
     .toLowerCase();
 
-const drawScheduleGrid = ({ ctx, schedules, days, timeSlots, mode }) => {
+const drawScheduleGrid = ({ ctx, schedules, days, timeSlots, mode, labels }) => {
   const x = 14;
   const y = 86;
   const width = A6_LANDSCAPE.width - 28;
@@ -291,7 +291,7 @@ const drawScheduleGrid = ({ ctx, schedules, days, timeSlots, mode }) => {
   ctx.font = "800 7.5px Arial, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("Heure", x + timeColumnWidth / 2, y + headerHeight / 2);
+  ctx.fillText(labels.time, x + timeColumnWidth / 2, y + headerHeight / 2);
 
   days.forEach((day, dayIndex) => {
     const columnX = x + timeColumnWidth + dayIndex * dayColumnWidth;
@@ -333,7 +333,7 @@ const drawScheduleGrid = ({ ctx, schedules, days, timeSlots, mode }) => {
     if (isPause) {
       ctx.fillStyle = palette.primary;
       ctx.font = "800 8px Arial, sans-serif";
-      ctx.fillText("Pause", x + timeColumnWidth + (width - timeColumnWidth) / 2, rowY + rowHeight / 2);
+      ctx.fillText(labels.break, x + timeColumnWidth + (width - timeColumnWidth) / 2, rowY + rowHeight / 2);
       return;
     }
 
@@ -343,7 +343,7 @@ const drawScheduleGrid = ({ ctx, schedules, days, timeSlots, mode }) => {
       );
 
       items.forEach((schedule, itemIndex) => {
-        const code = scheduleSubjectCode(schedule);
+        const code = scheduleSubjectCode(schedule, labels.elsewhere);
         const color = isExternalSchedule(schedule)
           ? { bg: "#f5f3ff", border: "#c4b5fd", text: "#5b21b6" }
           : subjectColor(code);
@@ -378,7 +378,7 @@ const drawScheduleGrid = ({ ctx, schedules, days, timeSlots, mode }) => {
           }
           ctx.font = "700 6.2px Arial, sans-serif";
           ctx.fillStyle = palette.muted;
-          ctx.fillText(compactClassName(schedule), courseX + courseW / 2, courseY + courseH / 2 + 5);
+          ctx.fillText(compactClassName(schedule, labels.otherSchool), courseX + courseW / 2, courseY + courseH / 2 + 5);
         } else {
           fillTextCentered(ctx, title, courseX, courseY, courseW, courseH, 10.5, 6.5);
         }
@@ -398,13 +398,14 @@ export const buildSchedulePdf = async ({
   schedules,
   days,
   timeSlots,
+  labels,
 }) => {
   const scale = 4;
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(A6_LANDSCAPE.width * scale);
   canvas.height = Math.round(A6_LANDSCAPE.height * scale);
   const ctx = canvas.getContext("2d");
-  const schoolName = school?.name || "École";
+  const schoolName = school?.name || labels.school;
   const logo = await loadLogo(logoUrl);
 
   ctx.scale(scale, scale);
@@ -419,23 +420,22 @@ export const buildSchedulePdf = async ({
 
   ctx.fillStyle = palette.text;
   ctx.font = "800 10px Arial, sans-serif";
-  ctx.textAlign = "left";
+  ctx.direction = labels.isRtl ? "rtl" : "ltr";
+  ctx.textAlign = labels.isRtl ? "right" : "left";
   ctx.textBaseline = "top";
-  ctx.fillText(schoolName, 50, 18);
+  const headingX = labels.isRtl ? A6_LANDSCAPE.width - 20 : 50;
+  ctx.fillText(schoolName, headingX, 18);
 
   ctx.fillStyle = palette.primary;
   ctx.font = "900 14px Arial, sans-serif";
-  const title =
-    mode === "class"
-      ? `Emploi du temps - ${className || "Classe"}`.trim()
-      : `Emploi du temps du professeur ${teacherName || ""}`.trim();
-  ctx.fillText(title, 50, 34);
+  const title = mode === "class" ? labels.classTitle : labels.teacherTitle;
+  ctx.fillText(title, headingX, 34);
 
   ctx.fillStyle = palette.muted;
   ctx.font = "700 8.5px Arial, sans-serif";
-  ctx.fillText(`Semaine ${weekLabel} - Année scolaire ${yearLabel}`, 50, 53);
+  ctx.fillText(labels.period, headingX, 53);
 
-  drawScheduleGrid({ ctx, schedules, days, timeSlots, mode });
+  drawScheduleGrid({ ctx, schedules, days, timeSlots, mode, labels });
 
   let jpegDataUrl;
   try {
@@ -454,14 +454,16 @@ export const buildSchedulePdf = async ({
     drawLogo(fallbackCtx, null, schoolName, 16, 16, 28);
     fallbackCtx.fillStyle = palette.text;
     fallbackCtx.font = "800 10px Arial, sans-serif";
-    fallbackCtx.fillText(schoolName, 50, 18);
+    fallbackCtx.direction = labels.isRtl ? "rtl" : "ltr";
+    fallbackCtx.textAlign = labels.isRtl ? "right" : "left";
+    fallbackCtx.fillText(schoolName, headingX, 18);
     fallbackCtx.fillStyle = palette.primary;
     fallbackCtx.font = "900 14px Arial, sans-serif";
-    fallbackCtx.fillText(title, 50, 34);
+    fallbackCtx.fillText(title, headingX, 34);
     fallbackCtx.fillStyle = palette.muted;
     fallbackCtx.font = "700 8.5px Arial, sans-serif";
-    fallbackCtx.fillText(`Semaine ${weekLabel} - Année scolaire ${yearLabel}`, 50, 53);
-    drawScheduleGrid({ ctx: fallbackCtx, schedules, days, timeSlots, mode });
+    fallbackCtx.fillText(labels.period, headingX, 53);
+    drawScheduleGrid({ ctx: fallbackCtx, schedules, days, timeSlots, mode, labels });
     jpegDataUrl = fallbackCanvas.toDataURL("image/jpeg", 0.95);
   }
 
@@ -472,10 +474,10 @@ export const buildSchedulePdf = async ({
     imageHeight: canvas.height,
   });
 
-  const targetPart = mode === "class" ? safeFilePart(className || "classe") : safeFilePart(teacherName || "professeur");
+  const targetPart = mode === "class" ? safeFilePart(className || "class") : safeFilePart(teacherName || "teacher");
   return {
     blob: pdf,
-    filename: `emploi-du-temps-${targetPart}-${safeFilePart(yearLabel)}-semaine-${safeFilePart(weekLabel)}.pdf`,
+    filename: `${safeFilePart(labels.filename)}-${targetPart}-${safeFilePart(yearLabel)}-${safeFilePart(weekLabel)}.pdf`,
   };
 };
 

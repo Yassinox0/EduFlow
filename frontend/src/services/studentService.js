@@ -5,6 +5,20 @@ export const getStudents = async (params) => {
   return response.data;
 };
 
+export const getStudentById = async (id) => {
+  const response = await api.get(`/api/students/${id}`);
+  return response.data;
+};
+
+export const uploadStudentPhoto = async (id, file) => {
+  const formData = new FormData();
+  formData.append("photo", file);
+  const response = await api.post(`/api/students/${id}/photo`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return response.data;
+};
+
 export const createStudent = async (payload) => {
   const response = await api.post("/api/students", payload);
   return response.data;
@@ -19,13 +33,6 @@ export const deleteStudent = async (id) => {
   const response = await api.delete(`/api/students/${id}`);
   return response.data;
 };
-
-export const getStudent = async (id) => (await api.get(`/api/students/${id}/profile`)).data;
-export const getStudentStatusHistory = async (id) => (await api.get(`/api/students/${id}/status-history`)).data;
-export const changeStudentStatus = async (id, payload) => (await api.post(`/api/students/${id}/status`, payload)).data;
-export const getMatriculePreview = async () => (await api.get("/api/students/matricule-preview")).data;
-export const checkMassarCode = async (massarCode, exceptId) => (await api.get("/api/students/massar-check", { params: { massar_code: massarCode, except_id: exceptId } })).data;
-export const uploadStudentPhoto = async (file) => { const data=new FormData(); data.append("photo",file); return (await api.post("/api/students/photo",data,{headers:{"Content-Type":"multipart/form-data"}})).data; };
 
 export const importStudents = async (payload, onProgress) => {
   const formData = new FormData();
