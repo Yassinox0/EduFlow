@@ -88,18 +88,18 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="admin-grid">
-      <section className="panel hero-panel hero-modern">
+    <div className="admin-grid dashboard-page">
+      <section className="panel hero-panel hero-modern dashboard-hero">
         <p className="brand-kicker">Vue operationnelle</p>
-        <h1>Centre financier {SCHOOL_NAME}</h1>
+        <h1>Centre financier de {SCHOOL_NAME}</h1>
         <p className="muted">
           Suivi quotidien des encaissements, impayes et priorites de recouvrement.
         </p>
       </section>
 
       <section className="kpi-grid">
-        {cards.map((card) => (
-          <article key={card.label} className="panel kpi kpi-modern">
+        {cards.map((card, index) => (
+          <article key={card.label} className={`panel kpi kpi-modern dashboard-kpi dashboard-kpi-${index}`}>
             <p className="kpi-label">{card.label}</p>
             <h2>{card.value}</h2>
             <p className="muted">{card.helper}</p>
@@ -108,7 +108,7 @@ export default function DashboardPage() {
       </section>
 
       <section className="split-panel">
-        <article className="panel">
+        <article className="panel dashboard-table-panel">
           <h3>Paiements recents</h3>
           <p className="muted">5 derniers encaissements</p>
           <div className="table-wrap">
@@ -140,7 +140,7 @@ export default function DashboardPage() {
           </div>
         </article>
 
-        <article className="panel">
+        <article className="panel dashboard-table-panel">
           <h3>Top impayes</h3>
           <p className="muted">5 eleves avec le plus grand reste a payer</p>
           <div className="table-wrap">
