@@ -20,6 +20,7 @@ use App\Controllers\SchoolController;
 use App\Controllers\ScheduleController;
 use App\Controllers\SubjectController;
 use App\Controllers\StudentController;
+use App\Controllers\StudentDocumentController;
 use App\Controllers\ChargeCategoryController;
 use App\Controllers\DiscountController;
 use App\Controllers\StudentChargeController;
@@ -97,10 +98,13 @@ Router::add('GET', '/api/payments', [new PaymentController(), 'index'], [AuthMid
 Router::add('POST', '/api/payments', [new PaymentController(), 'store'], [AuthMiddleware::class, new SchoolRoleMiddleware(['admin', 'user'])]);
 Router::add('GET', '/api/payments/{id}', [new PaymentController(), 'show'], [AuthMiddleware::class, new SchoolRoleMiddleware(['admin', 'user'])]);
 Router::add('PUT', '/api/payments/{id}', [new PaymentController(), 'update'], [AuthMiddleware::class, new SchoolRoleMiddleware(['admin', 'user'])]);
+Router::add('POST', '/api/payments/{id}/cancel', [new PaymentController(), 'cancel'], [AuthMiddleware::class, new SchoolRoleMiddleware(['admin', 'user'])]);
 Router::add('DELETE', '/api/payments/{id}', [new PaymentController(), 'delete'], [AuthMiddleware::class, new SchoolRoleMiddleware(['admin', 'user'])]);
 Router::add('GET', '/api/payment-documents/monthly', [new PaymentDocumentController(), 'monthly'], [AuthMiddleware::class, new SchoolRoleMiddleware(['admin', 'user'])]);
 Router::add('GET', '/api/payment-documents/students/{id}', [new PaymentDocumentController(), 'student'], [AuthMiddleware::class, new SchoolRoleMiddleware(['admin', 'user'])]);
+Router::add('GET', '/api/payment-documents/families/{id}', [new PaymentDocumentController(), 'family'], [AuthMiddleware::class, new SchoolRoleMiddleware(['admin', 'user'])]);
 Router::add('GET', '/api/payment-documents/unpaid', [new PaymentDocumentController(), 'unpaid'], [AuthMiddleware::class, new SchoolRoleMiddleware(['admin', 'user'])]);
+Router::add('GET', '/api/student-documents/{id}/financial-statement', [new StudentDocumentController(), 'financialStatement'], [AuthMiddleware::class, new SchoolRoleMiddleware(['admin', 'user'])]);
 Router::add('GET', '/api/payment-methods', [new PaymentMethodController(), 'index'], [AuthMiddleware::class]);
 Router::add('POST', '/api/payment-methods', [new PaymentMethodController(), 'store'], [AuthMiddleware::class, new RoleMiddleware('super_admin')]);
 Router::add('GET', '/api/payment-methods/{id}', [new PaymentMethodController(), 'show'], [AuthMiddleware::class]);
@@ -119,6 +123,7 @@ Router::add('GET', '/api/charge-categories/{id}', [new ChargeCategoryController(
 Router::add('PUT', '/api/charge-categories/{id}', [new ChargeCategoryController(), 'update'], [AuthMiddleware::class, new SchoolRoleMiddleware('admin')]);
 Router::add('PATCH', '/api/charge-categories/{id}/archive', [new ChargeCategoryController(), 'archive'], [AuthMiddleware::class, new SchoolRoleMiddleware('admin')]);
 Router::add('GET', '/api/student-charges', [new StudentChargeController(), 'index'], [AuthMiddleware::class, new SchoolRoleMiddleware(['admin', 'user'])]);
+Router::add('GET', '/api/student-charges/unpaid', [new StudentChargeController(), 'unpaid'], [AuthMiddleware::class, new SchoolRoleMiddleware(['admin', 'user'])]);
 Router::add('POST', '/api/student-charges/preview', [new StudentChargeController(), 'preview'], [AuthMiddleware::class, new SchoolRoleMiddleware('admin')]);
 Router::add('POST', '/api/student-charges/bulk', [new StudentChargeController(), 'bulk'], [AuthMiddleware::class, new SchoolRoleMiddleware('admin')]);
 Router::add('POST', '/api/student-charges', [new StudentChargeController(), 'store'], [AuthMiddleware::class, new SchoolRoleMiddleware('admin')]);
@@ -139,6 +144,8 @@ Router::add('GET', '/api/school/dashboard', [new DashboardController(), 'index']
 Router::add('GET', '/api/super-admin/dashboard', [new SuperAdminController(), 'dashboard'], [AuthMiddleware::class, new RoleMiddleware('super_admin')]);
 
 Router::add('GET', '/api/school/current', [new SchoolController(), 'current'], [AuthMiddleware::class]);
+Router::add('GET', '/api/school/current/active-academic-year', [new SchoolController(), 'activeAcademicYear'], [AuthMiddleware::class, new SchoolRoleMiddleware(['admin', 'user'])]);
+Router::add('PUT', '/api/school/current/active-academic-year', [new SchoolController(), 'updateActiveAcademicYear'], [AuthMiddleware::class, new SchoolRoleMiddleware('admin')]);
 
 // School routes - specific routes before generic {id} routes
 Router::add('GET', '/api/schools', [new SchoolController(), 'index'], [AuthMiddleware::class, new RoleMiddleware('super_admin')]);

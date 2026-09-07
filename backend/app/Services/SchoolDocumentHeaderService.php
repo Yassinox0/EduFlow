@@ -16,8 +16,8 @@ class SchoolDocumentHeaderService
         $escape = static fn (mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $contacts = array_filter([$school['address'] ?? null, $school['city'] ?? null, $school['phone'] ?? null, $school['phone_secondary'] ?? null, $school['email'] ?? null, $school['website'] ?? null]);
         $logo = $this->logoDataUrl((string) ($school['logo_path'] ?? ''), $schoolId);
-        $logoHtml = $logo ? '<img src="' . $escape($logo) . '" alt="Logo" style="max-width:64px;max-height:64px;object-fit:contain">' : '';
-        return '<table style="width:100%;border-bottom:2px solid ' . $escape($school['primary_color'] ?? '#0F4AA3') . ';margin:0 0 18px;padding:0 0 8px"><tr><td style="width:76px;vertical-align:top">' . $logoHtml . '</td><td><strong style="font-size:16px">' . $escape($school['name'] ?? 'Établissement') . '</strong><br><span style="font-size:9px">' . $escape(implode(' · ', $contacts)) . '</span>' . (!empty($school['administrative_info']) ? '<br><span style="font-size:9px">' . $escape($school['administrative_info']) . '</span>' : '') . '</td></tr></table>';
+        $logoHtml = $logo ? '<img src="' . $escape($logo) . '" alt="Logo" style="max-width:34px;max-height:34px;object-fit:contain">' : '';
+        return '<table class="school-document-header"><tr><td class="school-logo">' . $logoHtml . '</td><td><strong>' . $escape($school['name'] ?? 'Établissement') . '</strong><br><span>' . $escape(implode(' · ', $contacts)) . '</span>' . (!empty($school['administrative_info']) ? '<br><span>' . $escape($school['administrative_info']) . '</span>' : '') . '</td></tr></table>';
     }
 
     private function logoDataUrl(string $relativePath, int $schoolId): ?string

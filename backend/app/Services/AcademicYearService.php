@@ -35,7 +35,7 @@ class AcademicYearService
         $endDate = $this->nullableDate($data['end_date'] ?? null);
 
         if (!$this->validName($name)) {
-            return ['error' => 'Academic year must use the YYYY-YYYY format'];
+            return ['error' => 'Academic year must use the YYYY/YYYY or YYYY-YYYY format'];
         }
         if ($startDate === false || $endDate === false) {
             return ['error' => 'Invalid academic year date'];
@@ -44,7 +44,7 @@ class AcademicYearService
             return ['error' => 'Academic year end date must be after start date'];
         }
 
-        $currentCount = $pdo->prepare('SELECT COUNT(*) FROM academic_years WHERE school_id = ? AND is_current = 1');
+        $currentCount = $pdo->prepare('SELECT COUNT(*) FROM school_settings WHERE school_id = ? AND setting_key = "active_academic_year_id"');
         $currentCount->execute([$schoolId]);
         $isCurrent = array_key_exists('is_current', $data)
             ? $this->boolean($data['is_current'])
@@ -74,6 +74,9 @@ class AcademicYearService
             ');
             $stmt->execute([$schoolId, $name, $startDate, $endDate, $isCurrent ? 1 : 0, $status]);
             $id = (int)$pdo->lastInsertId();
+            if ($isCurrent) {
+                $this->storeActiveYear($pdo, $schoolId, $id);
+            }
             $pdo->commit();
 
             return $this->find($id) + ['message' => 'Academic year created successfully'];
@@ -115,7 +118,7 @@ class AcademicYearService
             : (string)$existing['status'];
 
         if (!$this->validName($name)) {
-            return ['error' => 'Academic year must use the YYYY-YYYY format'];
+            return ['error' => 'Academic year must use the YYYY/YYYY or YYYY-YYYY format'];
         }
         if ($startDate === false || $endDate === false) {
             return ['error' => 'Invalid academic year date'];
@@ -126,7 +129,7 @@ class AcademicYearService
         if (!in_array($status, self::STATUSES, true)) {
             return ['error' => 'Invalid academic year status'];
         }
-        if ((bool)$existing['is_current'] && !$isCurrent) {
+        if ($this->activeYearId($pdo, $schoolId) === $id && !$isCurrent) {
             return ['error' => 'Select another current academic year before disabling this one'];
         }
         if ($isCurrent && $status === 'CLOSED') {
@@ -148,6 +151,9 @@ class AcademicYearService
                 WHERE id = ? AND school_id = ?
             ');
             $stmt->execute([$name, $startDate, $endDate, $isCurrent ? 1 : 0, $status, $id, $schoolId]);
+            if ($isCurrent) {
+                $this->storeActiveYear($pdo, $schoolId, $id);
+            }
             $pdo->commit();
 
             return $this->find($id) + ['message' => 'Academic year updated successfully'];
@@ -190,9 +196,38 @@ class AcademicYearService
         $pdo->prepare($sql)->execute($parameters);
     }
 
+    private function storeActiveYear(PDO $pdo, int $schoolId, int $yearId): void
+    {
+        $user = Request::get('auth_user', []);
+        $stmt = $pdo->prepare('
+            INSERT INTO school_settings (school_id, setting_key, setting_value, updated_by)
+            VALUES (?, "active_academic_year_id", ?, ?)
+            ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_by = VALUES(updated_by)
+        ');
+        $stmt->execute([$schoolId, (string)$yearId, (int)($user['id'] ?? 0) ?: null]);
+    }
+
+    private function activeYearId(PDO $pdo, int $schoolId): ?int
+    {
+        $stmt = $pdo->prepare('
+            SELECT ay.id
+            FROM school_settings settings
+            INNER JOIN academic_years ay
+                ON ay.id = CAST(settings.setting_value AS UNSIGNED)
+               AND ay.school_id = settings.school_id
+            WHERE settings.school_id = ?
+              AND settings.setting_key = "active_academic_year_id"
+            LIMIT 1
+        ');
+        $stmt->execute([$schoolId]);
+        $id = (int)($stmt->fetchColumn() ?: 0);
+
+        return $id > 0 ? $id : null;
+    }
+
     private function validName(string $name): bool
     {
-        if (!preg_match('/^(\d{4})-(\d{4})$/', $name, $matches)) {
+        if (!preg_match('/^(\d{4})[\/-](\d{4})$/', $name, $matches)) {
             return false;
         }
 

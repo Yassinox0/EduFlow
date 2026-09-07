@@ -31,6 +31,24 @@ class StudentChargeService
         return (bool) $s->fetch();
     }
 
+    private function activeAcademicYearId(): ?int
+    {
+        $stmt = Database::connect()->prepare('
+            SELECT ay.id
+            FROM school_settings settings
+            INNER JOIN academic_years ay
+                ON ay.id = CAST(settings.setting_value AS UNSIGNED)
+               AND ay.school_id = settings.school_id
+            WHERE settings.school_id = ?
+              AND settings.setting_key = "active_academic_year_id"
+            LIMIT 1
+        ');
+        $stmt->execute([$this->school()]);
+        $id = (int)($stmt->fetchColumn() ?: 0);
+
+        return $id > 0 ? $id : null;
+    }
+
     private function validStudents(array $ids): array
     {
         $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
@@ -76,7 +94,9 @@ class StudentChargeService
         $studentIds = $data['student_ids'] ?? (isset($data['student_id']) ? [$data['student_id']] : []);
         $students = $this->validStudents((array)$studentIds);
         $category = $this->category((int)($data['charge_category_id'] ?? 0));
-        $yearId = isset($data['academic_year_id']) && $data['academic_year_id'] !== '' ? (int)$data['academic_year_id'] : null;
+        $yearId = isset($data['academic_year_id']) && $data['academic_year_id'] !== ''
+            ? (int)$data['academic_year_id']
+            : $this->activeAcademicYearId();
         if (!$students || !$category || !$this->academicYear($yearId)) return ['error'=>'Élève, catégorie ou année scolaire invalide'];
         $months = $data['months'] ?? [($data['billing_month'] ?? null)];
         $months = array_values(array_unique(array_map(static fn($m) => $m === null || $m === '' ? null : (int)$m, (array)$months)));
@@ -126,4 +146,25 @@ class StudentChargeService
     public function update(int $id,array $data):array
     { $old=$this->one($id);if(!$old)return['error'=>'Charge introuvable','status'=>404];if((float)$old['paid_amount']>0)return['error'=>'Une charge payée ou partiellement payée ne peut pas être modifiée','status'=>409];$amount=array_key_exists('original_amount',$data)?$this->money($data['original_amount']):$this->money($old['original_amount']);$d=$this->discount($amount,$data['discount_type']??$old['discount_type'],$data['discount_value']??$old['discount_value']);if(isset($d['error']))return$d;$pdo=Database::connect();$ownsTransaction=!$pdo->inTransaction();if($ownsTransaction)$pdo->beginTransaction();try{$pdo->prepare('UPDATE student_financial_items SET unit_amount=?,total_amount=?,discount_amount=?,justification=? WHERE id=? AND school_id=?')->execute([$amount,$d['final'],$d['amount'],$data['notes']??$old['notes'],$id,$this->school()]);$pdo->prepare('UPDATE student_financial_item_details SET due_date=?,original_amount=?,discount_type=?,discount_value=?,final_amount=?,notes=?,modified_by=? WHERE student_financial_item_id=? AND school_id=?')->execute([$data['due_date']??$old['due_date'],$amount,$d['type'],$d['value'],$d['final'],$data['notes']??$old['notes'],$this->user(),$id,$this->school()]);$new=$this->one($id);$this->history($pdo,$id,'UPDATED',$old,$new,$data['reason']??null);if($ownsTransaction)$pdo->commit();return$new;}catch(\Throwable $e){if($ownsTransaction&&$pdo->inTransaction())$pdo->rollBack();return['error'=>$e->getMessage()];}}
     public function historyFor(int $id):array{$q=Database::connect()->prepare('SELECT h.* FROM student_financial_item_history h WHERE h.student_financial_item_id=? AND h.school_id=? ORDER BY h.id DESC');$q->execute([$id,$this->school()]);return$q->fetchAll();}
+
+    public function unpaid(array $filters = []): array
+    {
+        $where = ['fi.school_id = ?', 'fi.status IN ("UNPAID", "PARTIAL")', 'details.due_date IS NOT NULL', 'details.due_date <= CURDATE()'];
+        $params = [$this->school()];
+        if (!empty($filters['student_id'])) { $where[] = 'fi.student_id = ?'; $params[] = (int)$filters['student_id']; }
+        if (!empty($filters['academic_year_id'])) { $where[] = 'fi.academic_year_id = ?'; $params[] = (int)$filters['academic_year_id']; }
+        $stmt = Database::connect()->prepare('
+            SELECT fi.id, fi.school_id, fi.student_id, fi.label, fi.status, fi.paid_amount,
+                   details.due_date, details.final_amount,
+                   GREATEST(0, details.final_amount - fi.paid_amount) AS remaining_amount,
+                   s.first_name, s.last_name
+            FROM student_financial_items fi
+            INNER JOIN student_financial_item_details details ON details.student_financial_item_id = fi.id AND details.school_id = fi.school_id
+            INNER JOIN students s ON s.id = fi.student_id AND s.school_id = fi.school_id
+            WHERE ' . implode(' AND ', $where) . '
+            ORDER BY details.due_date, s.last_name, s.first_name, fi.id
+        ');
+        $stmt->execute($params);
+        return $stmt->fetchAll();
+    }
 }

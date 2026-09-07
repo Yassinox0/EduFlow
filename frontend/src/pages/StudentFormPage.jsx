@@ -1,234 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { DEFAULT_LEVEL_OPTIONS } from "../config/schoolOptions";
 import { getClassLevels } from "../services/classLevelService";
 import { createStudent, getStudentById, updateStudent } from "../services/studentService";
-import useI18n from "../hooks/useI18n";
+import { getActiveAcademicYear, getChargeCategories } from "../services/studentFinanceService";
 
-const emptyForm = {
-  first_name: "",
-  last_name: "",
-  date_of_birth: "",
-  gender: "",
-  address: "",
-  class_level_id: "",
-  class_name: "",
-  school_year: "",
-  status: "ACTIVE",
-  parent_name: "",
-  parent_phone: "",
-  monthly_amount: "",
-  discount_percent: "0",
-};
+const guardian = () => ({ full_name:"", phone_primary:"", phone_secondary:"", email:"", relationship_type:"Responsable" });
+const charge = () => ({ charge_category_id:"", label:"", original_amount:"", discount_type:"", discount_value:"", due_date:"" });
+const blank = { first_name:"",last_name:"",first_name_ar:"",last_name_ar:"",date_of_birth:"",gender:"",address:"",class_level_id:"",class_name:"",status:"REGISTERED",internal_number:"",massar_code:"",cne:"",parent_name:"Responsable",parent_phone:"N/A",monthly_amount:0,discount_percent:0,uses_transport:false,guardians:[guardian()],charges:[] };
+const total = c => { const a=Number(c.original_amount||0), v=Number(c.discount_value||0), d=c.discount_type==="PERCENTAGE"?a*v/100:c.discount_type==="FIXED"?v:0; return {a,d,f:Math.max(0,a-d)}; };
+const money = n => `${new Intl.NumberFormat("fr-MA",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0))} DH`;
 
-const formatMoney = (value, language) =>
-  new Intl.NumberFormat(language === "ar" ? "ar-MA" : "fr-MA", {
-    style: "currency",
-    currency: "MAD",
-  }).format(Number(value || 0));
-
-export default function StudentFormPage() {
-  const { id } = useParams();
-  const navigate = useNavigate();
-  const { language, t } = useI18n();
-  const [form, setForm] = useState(emptyForm);
-  const [classLevels, setClassLevels] = useState([]);
-  const [pageLoading, setPageLoading] = useState(Boolean(id));
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  const editing = Boolean(id);
-
-  useEffect(() => {
-    let active = true;
-
-    const loadForm = async () => {
-      setPageLoading(editing);
-      setError("");
-
-      try {
-        const requests = [getClassLevels()];
-        if (editing) requests.push(getStudentById(id));
-        const [levelData, profileData] = await Promise.all(requests);
-        if (!active) return;
-
-        const normalizedLevels = Array.isArray(levelData) ? levelData : [];
-        setClassLevels(normalizedLevels);
-
-        if (editing) {
-          const student = profileData?.student || profileData;
-          const parent = profileData?.parent || {};
-          setForm({
-            first_name: student?.first_name || "",
-            last_name: student?.last_name || "",
-            date_of_birth: student?.date_of_birth || "",
-            gender: student?.gender || "",
-            address: student?.address || "",
-            class_level_id: normalizedLevels.length
-              ? String(student?.class_level_id || "")
-              : String(student?.class_level_name || student?.class_level || ""),
-            class_name: student?.class_name || student?.class_group_name || "",
-            school_year: student?.school_year || "",
-            status: student?.status || "ACTIVE",
-            parent_name: student?.parent_name || parent?.name || "",
-            parent_phone: parent?.phone || student?.parent_phone || student?.phone || "",
-            monthly_amount: student?.monthly_amount != null ? String(student.monthly_amount) : "",
-            discount_percent: student?.discount_percent != null ? String(student.discount_percent) : "0",
-          });
-        }
-      } catch (err) {
-        setError(editing ? t("studentProfile.loadError") : t("students.loadLevelsError"));
-      } finally {
-        if (active) setPageLoading(false);
-      }
-    };
-
-    loadForm();
-    return () => {
-      active = false;
-    };
-  }, [editing, id]);
-
-  const levelOptions = useMemo(() => {
-    if (classLevels.length) {
-      return classLevels.map((item) => ({ id: String(item.id), name: item.name }));
-    }
-
-    return DEFAULT_LEVEL_OPTIONS.map((item) => ({ id: item.value, name: t(item.translationKey) }));
-  }, [classLevels, t]);
-
-  const effectiveAmount = useMemo(() => {
-    const amount = Number(form.monthly_amount || 0);
-    const discount = Number(form.discount_percent || 0);
-    return Math.max(amount * ((100 - discount) / 100), 0);
-  }, [form.discount_percent, form.monthly_amount]);
-
-  const updateField = (field, value) => {
-    setForm((current) => ({ ...current, [field]: value }));
-  };
-
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    setSaving(true);
-    setError("");
-
-    try {
-      const selectedClassLevelId = classLevels.length ? Number(form.class_level_id) : null;
-      if (!form.class_level_id) {
-        setError(t("students.chooseLevel"));
-        return;
-      }
-
-      const payload = {
-        first_name: form.first_name.trim(),
-        last_name: form.last_name.trim(),
-        date_of_birth: form.date_of_birth || null,
-        gender: form.gender || null,
-        address: form.address.trim() || null,
-        class_level_id: selectedClassLevelId || undefined,
-        class_level: classLevels.length ? undefined : form.class_level_id,
-        class_name: form.class_name.trim() || null,
-        school_year: form.school_year.trim() || null,
-        status: form.status,
-        parent_name: form.parent_name.trim(),
-        parent_phone: form.parent_phone.trim(),
-        monthly_amount: Number(form.monthly_amount || 0),
-        discount_percent: Number(form.discount_percent || 0),
-      };
-
-      const result = editing ? await updateStudent(id, payload) : await createStudent(payload);
-      navigate(`/students/${result?.id || id}`);
-    } catch (err) {
-      setError(t("students.saveError"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (pageLoading) {
-    return <section className="panel student-form-state">{t("common.loading")}</section>;
-  }
-
-  return (
-    <div className="admin-grid student-form-page">
-      <section className="panel hero-modern panel-header student-form-header">
-        <div>
-          <p className="brand-kicker">{t("students.directoryKicker")}</p>
-          <h2>{editing ? t("students.edit") : t("students.create")}</h2>
-          <p className="muted">
-            {editing ? t("students.editDescription") : t("students.createDescription")}
-          </p>
-        </div>
-        <Link className="secondary-btn button-link" to={editing ? `/students/${id}` : "/students"}>
-          {t("students.backToDirectory")}
-        </Link>
-      </section>
-
-      <form className="student-record-form" onSubmit={handleSubmit}>
-        <div className="student-form-layout">
-          <section className="panel student-form-section">
-            <div className="student-form-section-header">
-              <span>01</span>
-              <div><h3>{t("students.identitySection")}</h3><p>{t("students.identitySectionHelp")}</p></div>
-            </div>
-            <div className="student-form-grid">
-              <label><span>{t("common.firstName")}</span><input value={form.first_name} onChange={(event) => updateField("first_name", event.target.value)} required /></label>
-              <label><span>{t("common.lastName")}</span><input value={form.last_name} onChange={(event) => updateField("last_name", event.target.value)} required /></label>
-              <label><span>{t("students.birthDate")}</span><input type="date" value={form.date_of_birth} onChange={(event) => updateField("date_of_birth", event.target.value)} /></label>
-              <label><span>{t("students.gender")}</span><select value={form.gender} onChange={(event) => updateField("gender", event.target.value)}><option value="">{t("genders.unspecified")}</option><option value="F">{t("genders.female")}</option><option value="M">{t("genders.male")}</option></select></label>
-              <label className="student-form-full-field"><span>{t("common.address")}</span><textarea value={form.address} onChange={(event) => updateField("address", event.target.value)} /></label>
-            </div>
-          </section>
-
-          <section className="panel student-form-section">
-            <div className="student-form-section-header">
-              <span>02</span>
-              <div><h3>{t("students.schoolingSection")}</h3><p>{t("students.schoolingSectionHelp")}</p></div>
-            </div>
-            <div className="student-form-grid">
-              <label><span>{t("common.level")}</span><select value={form.class_level_id} onChange={(event) => updateField("class_level_id", event.target.value)} required><option value="">{t("students.chooseLevel")}</option>{levelOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-              <label><span>{t("common.class")}</span><input value={form.class_name} onChange={(event) => updateField("class_name", event.target.value)} placeholder={t("students.classPlaceholder")} /></label>
-              <label><span>{t("common.schoolYear")}</span><input value={form.school_year} onChange={(event) => updateField("school_year", event.target.value)} placeholder={t("students.schoolYearPlaceholder")} /></label>
-              <label><span>{t("common.status")}</span><select value={form.status} onChange={(event) => updateField("status", event.target.value)}><option value="ACTIVE">{t("statuses.active")}</option><option value="INACTIVE">{t("statuses.inactive")}</option></select></label>
-            </div>
-          </section>
-
-          <section className="panel student-form-section">
-            <div className="student-form-section-header">
-              <span>03</span>
-              <div><h3>{t("students.familySection")}</h3><p>{t("students.familySectionHelp")}</p></div>
-            </div>
-            <div className="student-form-grid">
-              <label><span>{t("students.parentName")}</span><input value={form.parent_name} onChange={(event) => updateField("parent_name", event.target.value)} required /></label>
-              <label><span>{t("students.parentPhone")}</span><input type="tel" dir="ltr" value={form.parent_phone} onChange={(event) => updateField("parent_phone", event.target.value)} required /></label>
-            </div>
-          </section>
-
-          <section className="panel student-form-section">
-            <div className="student-form-section-header">
-              <span>04</span>
-              <div><h3>{t("students.billingSection")}</h3><p>{t("students.billingSectionHelp")}</p></div>
-            </div>
-            <div className="student-form-grid">
-              <label><span>{t("students.monthlyAmount")}</span><input type="number" min="0" step="0.01" value={form.monthly_amount} onChange={(event) => updateField("monthly_amount", event.target.value)} required /></label>
-              <label><span>{t("students.discount")}</span><input type="number" min="0" max="100" step="0.01" value={form.discount_percent} onChange={(event) => updateField("discount_percent", event.target.value)} /></label>
-              <div className="student-net-fee student-form-full-field"><span>{t("students.netMonthlyFee")}</span><strong>{formatMoney(effectiveAmount, language)}</strong><small>{t("students.netMonthlyFeeHelp")}</small></div>
-            </div>
-          </section>
-        </div>
-
-        <section className="panel student-form-footer">
-          <div>
-            <strong>{t("students.formReadyTitle")}</strong>
-            <p className="muted">{t("students.formReadyHelp")}</p>
-            {error && <p className="error-text student-feedback">{error}</p>}
-          </div>
-          <div className="student-form-actions">
-            <Link className="secondary-btn button-link" to={editing ? `/students/${id}` : "/students"}>{t("common.cancel")}</Link>
-            <button type="submit" disabled={saving}>{saving ? t("common.saving") : (editing ? t("common.save") : t("students.createAction"))}</button>
-          </div>
-        </section>
-      </form>
-    </div>
-  );
+export default function StudentFormPage(){
+ const {id}=useParams(), editing=Boolean(id), navigate=useNavigate(); const [form,setForm]=useState(blank),[levels,setLevels]=useState([]),[categories,setCategories]=useState([]),[year,setYear]=useState(null),[error,setError]=useState(""),[saving,setSaving]=useState(false);
+ useEffect(()=>{let ok=true;(async()=>{try{const [l,c,a,d]=await Promise.all([getClassLevels(),getChargeCategories(),getActiveAcademicYear(),editing?getStudentById(id):Promise.resolve(null)]);if(!ok)return;setLevels(l||[]);setCategories((c||[]).filter(x=>x.status==="ACTIVE"));setYear(a?.active_academic_year);if(d){const s=d.student||d;setForm(f=>({...f,...s,class_level_id:String(s.class_level_id||""),parent_phone:d.parent?.phone||s.phone||"N/A",guardians:d.guardians?.length?d.guardians.map(x=>({...guardian(),...x})):f.guardians,charges:(d.charges||[]).map(x=>({...x,charge_category_id:String(x.charge_category_id||""),original_amount:x.original_amount||x.total_amount,discount_value:x.discount_value||""}))}));}}catch{setError("Impossible de charger le dossier.")}})();return()=>{ok=false}},[id,editing]);
+ const set=(k,v)=>setForm(x=>({...x,[k]:v})); const setGuardian=(i,k,v)=>setForm(x=>({...x,guardians:x.guardians.map((g,n)=>n===i?{...g,[k]:v}:g)})); const setCharge=(i,k,v)=>setForm(x=>({...x,charges:x.charges.map((c,n)=>n===i?{...c,[k]:v}:c)}));
+ const transport=categories.find(x=>x.code==="TRANSPORT"); const setTransport=yes=>setForm(x=>{const rest=x.charges.filter(c=>!c.transport);return {...x,uses_transport:yes,charges:yes?[...rest,{...charge(),transport:true,charge_category_id:String(transport?.id||""),label:"Transport"}]:rest}});
+ const summary=useMemo(()=>form.charges.reduce((r,c)=>{const x=total(c);return {a:r.a+x.a,d:r.d+x.d,f:r.f+x.f}},{a:0,d:0,f:0}),[form.charges]);
+ const submit=async e=>{e.preventDefault();setError("");if(!year){setError("Aucune année scolaire active.");return}for(const c of form.charges){const x=total(c);if(!c.charge_category_id||x.a<0||x.d<0||x.f<0||(c.discount_type==="PERCENTAGE"&&Number(c.discount_value)>100)){setError("Vérifiez les frais et réductions.");return}}setSaving(true);try{const guardians=form.guardians.filter(g=>g.full_name.trim());const main=guardians[0];const payload={...form,modern_profile:true,school_year:null,parent_name:main?.full_name||form.parent_name,parent_phone:main?.phone_primary||form.parent_phone,guardians,charges:form.charges.filter(c=>!c.id).map(c=>({...c,original_amount:Number(c.original_amount||0),discount_value:Number(c.discount_value||0)}))};const r=editing?await updateStudent(id,payload):await createStudent(payload);navigate(`/students/${r.id||id}`)}catch(e){setError(e.response?.data?.message||"Enregistrement impossible.")}finally{setSaving(false)}};
+ return <div className="admin-grid student-form-page"><section className="panel panel-header"><div><h2>{editing?"Modifier l’élève":"Ajouter un élève"}</h2><p className="muted">Dossier scolaire, responsables et frais.</p></div><Link className="secondary-btn button-link" to="/students">Retour</Link></section><form className="admin-grid" onSubmit={submit}>
+ <section className="panel student-form-section"><h3>1. Informations élève</h3><div className="student-form-grid">{[["first_name","Prénom"],["last_name","Nom"],["first_name_ar","Prénom arabe"],["last_name_ar","Nom arabe"],["internal_number","Matricule"],["massar_code","Code Massar"],["cne","CNE"]].map(([k,l])=><label key={k}>{l}<input required={k==="first_name"||k==="last_name"} dir={k.endsWith("_ar")?"rtl":undefined} value={form[k]||""} onChange={e=>set(k,e.target.value)}/></label>)}<label>Date de naissance<input type="date" value={form.date_of_birth||""} onChange={e=>set("date_of_birth",e.target.value)}/></label><label>Sexe<select value={form.gender||""} onChange={e=>set("gender",e.target.value)}><option value="">—</option><option value="F">Féminin</option><option value="M">Masculin</option></select></label><label>Statut<select value={form.status} onChange={e=>set("status",e.target.value)}>{["PRE_REGISTERED","REGISTERED","WAITING_LIST","CANCELLED","ARCHIVED"].map(x=><option key={x}>{x}</option>)}</select></label><label className="student-form-full-field">Adresse<textarea value={form.address||""} onChange={e=>set("address",e.target.value)}/></label></div></section>
+ <section className="panel student-form-section"><h3>2. Scolarité</h3><div className="student-form-grid"><label>Niveau<select required value={form.class_level_id} onChange={e=>set("class_level_id",e.target.value)}><option value="">Choisir</option>{levels.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label><label>Classe<input value={form.class_name||""} onChange={e=>set("class_name",e.target.value)}/></label><p><strong>Année active :</strong> {year?.name||"—"}</p></div></section>
+ <section className="panel student-form-section"><h3>3. Responsable familial</h3>{form.guardians.map((g,i)=><div className="student-form-grid" key={i}><label>Nom complet<input required={i===0} value={g.full_name} onChange={e=>setGuardian(i,"full_name",e.target.value)}/></label><label>Téléphone<input required={i===0} value={g.phone_primary} onChange={e=>setGuardian(i,"phone_primary",e.target.value)}/></label><label>Téléphone secondaire<input value={g.phone_secondary} onChange={e=>setGuardian(i,"phone_secondary",e.target.value)}/></label><label>Email<input type="email" value={g.email} onChange={e=>setGuardian(i,"email",e.target.value)}/></label><label>Relation<input value={g.relationship_type} onChange={e=>setGuardian(i,"relationship_type",e.target.value)}/></label>{i>0&&<button type="button" className="secondary-btn" onClick={()=>setForm(x=>({...x,guardians:x.guardians.filter((_,n)=>n!==i)}))}>Retirer</button>}</div>)}{form.guardians.length<3&&<button type="button" className="secondary-btn" onClick={()=>setForm(x=>({...x,guardians:[...x.guardians,guardian()]}))}>+ Ajouter un responsable</button>}</section>
+ <section className="panel student-form-section"><h3>4. Transport</h3><label><input type="radio" checked={!form.uses_transport} onChange={()=>setTransport(false)}/> Non</label><label><input type="radio" checked={!!form.uses_transport} onChange={()=>setTransport(true)}/> Oui</label>{form.uses_transport&&!transport&&<p className="error-text">Catégorie Transport indisponible.</p>}</section>
+ <section className="panel student-form-section"><h3>5. Frais et réductions</h3>{form.charges.map((c,i)=>{const x=total(c);return <div className="student-form-grid" key={i}><label>Catégorie<select value={c.charge_category_id} onChange={e=>setCharge(i,"charge_category_id",e.target.value)}><option value="">Choisir</option>{categories.map(z=><option key={z.id} value={z.id}>{z.label}</option>)}</select></label><label>Libellé<input value={c.label||""} onChange={e=>setCharge(i,"label",e.target.value)}/></label><label>Montant<input type="number" min="0" step="0.01" value={c.original_amount} onChange={e=>setCharge(i,"original_amount",e.target.value)}/></label><label>Réduction<select value={c.discount_type||""} onChange={e=>setCharge(i,"discount_type",e.target.value)}><option value="">Aucune</option><option value="FIXED">Montant</option><option value="PERCENTAGE">Pourcentage</option></select></label><label>Valeur<input type="number" min="0" max={c.discount_type==="PERCENTAGE"?100:undefined} disabled={!c.discount_type} value={c.discount_value||""} onChange={e=>setCharge(i,"discount_value",e.target.value)}/></label><label>Échéance<input type="date" value={c.due_date||""} onChange={e=>setCharge(i,"due_date",e.target.value)}/></label><p><strong>Final : {money(x.f)}</strong>{c.id&&<small> Payé {money(c.paid_amount)} · Reste {money(c.remaining_amount)} · {c.status}</small>}</p>{!c.id&&<button type="button" className="secondary-btn" onClick={()=>setForm(x=>({...x,charges:x.charges.filter((_,n)=>n!==i)}))}>Supprimer</button>}</div>})}<button type="button" className="secondary-btn" onClick={()=>setForm(x=>({...x,charges:[...x.charges,charge()]}))}>+ Ajouter un frais</button><div className="student-net-fee"><strong>Résumé</strong><p>Total initial : {money(summary.a)}</p><p>Réductions : -{money(summary.d)}</p><p>Total à payer : {money(summary.f)}</p></div></section>
+ <section className="panel student-form-footer">{error&&<p className="error-text">{error}</p>}<button disabled={saving}>{saving?"Enregistrement…":"Enregistrer"}</button></section></form></div>;
 }

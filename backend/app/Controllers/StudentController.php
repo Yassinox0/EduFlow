@@ -18,7 +18,10 @@ class StudentController
 
     public function store(): void
     {
-        $result = (new StudentService())->create(Request::json());
+        $data = Request::json();
+        $result = !empty($data['modern_profile'])
+            ? (new StudentService())->createModern($data)
+            : (new StudentService())->create($data);
         if (isset($result['error'])) {
             Response::json(['message' => $result['error']], 422);
         }
@@ -133,7 +136,10 @@ class StudentController
     public function update(): void
     {
         $id = (int)Request::param('id', 0);
-        $result = (new StudentService())->update($id, Request::json());
+        $data = Request::json();
+        $result = !empty($data['modern_profile'])
+            ? (new StudentService())->updateModern($id, $data)
+            : (new StudentService())->update($id, $data);
         if (isset($result['error'])) {
             $status = $result['error'] === 'Student not found' ? 404 : 422;
             if ($result['error'] === 'Forbidden') {
